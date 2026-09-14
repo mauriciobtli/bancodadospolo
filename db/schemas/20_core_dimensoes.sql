@@ -143,6 +143,8 @@ CREATE TABLE IF NOT EXISTS core.dim_organizacao (
     site                    text,
     ativa                   boolean NOT NULL DEFAULT true,
     data_entrada_ecossistema date,
+    data_saida_ecossistema  date,
+    motivo_saida            text,
     fonte_dado              text NOT NULL,
     data_coleta             date,
     criado_em               timestamptz NOT NULL DEFAULT now(),
@@ -157,10 +159,21 @@ CREATE TABLE IF NOT EXISTS core.dim_organizacao (
     )),
     CONSTRAINT ck_organizacao_ano_fundacao CHECK (
         ano_fundacao IS NULL OR ano_fundacao BETWEEN 1500 AND EXTRACT(YEAR FROM now())::int + 1
-    )
+    ),
+    CONSTRAINT ck_organizacao_datas_ecossistema CHECK (
+        data_saida_ecossistema IS NULL OR data_entrada_ecossistema IS NULL
+        OR data_saida_ecossistema >= data_entrada_ecossistema
+    ),
+    CONSTRAINT ck_organizacao_motivo_saida CHECK (motivo_saida IS NULL OR motivo_saida IN (
+        'encerramento', 'fusao_aquisicao', 'saiu_area_atuacao', 'inatividade', 'outro'
+    ))
 );
 COMMENT ON TABLE core.dim_organizacao IS 'Empresas, startups, universidades, ICTs, governo, associacoes etc. Apenas dados publicos/institucionais.';
 COMMENT ON COLUMN core.dim_organizacao.cnpj IS 'Somente digitos (14), validado por ck_organizacao_cnpj_formato e pelo validador de digito verificador no ETL. Nulo permitido para entidades sem CNPJ (coletivos, grupos de pesquisa).';
+COMMENT ON COLUMN core.dim_organizacao.data_saida_ecossistema IS
+    'Complementa data_entrada_ecossistema: quando preenchida (junto com ativa=false), registra '
+    'quando a organizacao deixou de fazer parte do ecossistema acompanhado. Base para futuras '
+    'metricas de sobrevivencia/renovacao empresarial (ver mart.vw_cohort_sobrevivencia_empresarial).';
 
 CREATE OR REPLACE TRIGGER trg_organizacao_atualizado_em
     BEFORE UPDATE ON core.dim_organizacao

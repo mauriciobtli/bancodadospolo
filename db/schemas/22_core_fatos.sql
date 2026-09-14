@@ -22,7 +22,15 @@ CREATE TABLE IF NOT EXISTS core.fato_investimento_inovacao (
     data_coleta         date,
     criado_em           timestamptz NOT NULL DEFAULT now(),
     atualizado_em       timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT uq_investimento_grao UNIQUE (id_organizacao, id_tempo, id_fonte_recurso, categoria, id_projeto),
+    -- NULLS NOT DISTINCT (PostgreSQL 16+): id_projeto e opcional, e duas
+    -- linhas com o mesmo organizacao/tempo/fonte/categoria e AMBAS sem
+    -- projeto vinculado devem ser tratadas como o mesmo grao (violacao de
+    -- unicidade), nao como registros distintos. Sem NULLS NOT DISTINCT, o
+    -- Postgres trataria NULL <> NULL e permitiria duplicatas silenciosas
+    -- sempre que id_projeto nao fosse informado.
+    CONSTRAINT uq_investimento_grao UNIQUE NULLS NOT DISTINCT (
+        id_organizacao, id_tempo, id_fonte_recurso, categoria, id_projeto
+    ),
     CONSTRAINT ck_investimento_valor CHECK (valor >= 0),
     CONSTRAINT ck_investimento_categoria CHECK (categoria IN (
         'p_d','infraestrutura','software_dados','capacitacao',
@@ -31,6 +39,12 @@ CREATE TABLE IF NOT EXISTS core.fato_investimento_inovacao (
 );
 COMMENT ON TABLE core.fato_investimento_inovacao IS 'Investimentos em inovacao por organizacao, periodo, fonte de recurso e categoria.';
 COMMENT ON COLUMN core.fato_investimento_inovacao.id_projeto IS 'Vinculo opcional ao projeto financiado. Usado pelas views mart.vw_investimento_por_tecnologia/setor para herdar a tecnologia/setor do projeto quando o investimento nao e diretamente ligado a organizacao.';
+COMMENT ON COLUMN core.fato_investimento_inovacao.categoria IS
+    'FONTE DE VERDADE para o detalhamento de investimento em P&D por fonte de recurso/projeto/tecnologia '
+    '(categoria = ''p_d''): soma de core.fato_investimento_inovacao.valor WHERE categoria=''p_d''. '
+    'E uma fonte DIFERENTE de core.fato_desempenho_organizacao.investimento_p_d (total anual '
+    'autodeclarado pela organizacao) — nao devem ser somadas nem comparadas como se fossem a mesma '
+    'medida. Ver comentario em fato_desempenho_organizacao.investimento_p_d e mart.vw_conciliacao_investimento_pd.';
 
 CREATE OR REPLACE TRIGGER trg_investimento_atualizado_em
     BEFORE UPDATE ON core.fato_investimento_inovacao
@@ -64,6 +78,7 @@ CREATE TABLE IF NOT EXISTS core.fato_inovacao (
     aumento_capacidade_percentual   numeric(6, 2),
     empregos_criados                integer NOT NULL DEFAULT 0,
     empregos_qualificados_criados   integer NOT NULL DEFAULT 0,
+    id_origem_externa               text,
     fonte_dado                      text NOT NULL,
     data_coleta                     date,
     criado_em                       timestamptz NOT NULL DEFAULT now(),
@@ -83,6 +98,11 @@ CREATE TABLE IF NOT EXISTS core.fato_inovacao (
     )
 );
 COMMENT ON TABLE core.fato_inovacao IS 'Uma inovacao individual (produto, servico, processo, modelo de negocio ou tecnologia habilitadora) implementada por uma organizacao.';
+COMMENT ON COLUMN core.fato_inovacao.id_origem_externa IS
+    'Identificador estavel do registro na fonte (ex.: id de resposta de formulario, ou '
+    '''<arquivo_origem>#<linha_origem>'' quando a fonte nao tem id proprio). Junto com o indice '
+    'unico parcial abaixo, permite ao ETL fazer INSERT ... ON CONFLICT (id_origem_externa) DO '
+    'UPDATE em reprocessamentos, evitando duplicar a mesma inovacao a cada nova carga do mesmo arquivo.';
 
 CREATE OR REPLACE TRIGGER trg_inovacao_atualizado_em
     BEFORE UPDATE ON core.fato_inovacao
@@ -93,6 +113,9 @@ CREATE INDEX IF NOT EXISTS ix_inovacao_projeto ON core.fato_inovacao (id_projeto
 CREATE INDEX IF NOT EXISTS ix_inovacao_tipo ON core.fato_inovacao (id_tipo_inovacao);
 CREATE INDEX IF NOT EXISTS ix_inovacao_grau_novidade ON core.fato_inovacao (id_grau_novidade);
 CREATE INDEX IF NOT EXISTS ix_inovacao_status ON core.fato_inovacao (status);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inovacao_origem_externa
+    ON core.fato_inovacao (id_origem_externa)
+    WHERE id_origem_externa IS NOT NULL;
 
 -- --------------------------------------------------- fato_conexao_ecossistema
 -- Grao: uma relacao entre dois atores do ecossistema.
@@ -108,6 +131,7 @@ CREATE TABLE IF NOT EXISTS core.fato_conexao_ecossistema (
     gerou_projeto           boolean NOT NULL DEFAULT false,
     gerou_contrato          boolean NOT NULL DEFAULT false,
     gerou_inovacao          boolean NOT NULL DEFAULT false,
+    id_origem_externa       text,
     fonte_dado              text NOT NULL,
     data_coleta             date,
     criado_em               timestamptz NOT NULL DEFAULT now(),
@@ -121,6 +145,8 @@ CREATE TABLE IF NOT EXISTS core.fato_conexao_ecossistema (
     CONSTRAINT ck_conexao_datas CHECK (data_fim IS NULL OR data_inicio IS NULL OR data_fim >= data_inicio)
 );
 COMMENT ON TABLE core.fato_conexao_ecossistema IS 'Relacao dirigida entre dois atores do ecossistema (pesquisa, parceria, contrato, mentoria etc.), base para analise de rede.';
+COMMENT ON COLUMN core.fato_conexao_ecossistema.id_origem_externa IS
+    'Identificador estavel do registro na fonte, para permitir upsert idempotente em reprocessamentos (mesmo mecanismo de fato_inovacao.id_origem_externa).';
 
 CREATE OR REPLACE TRIGGER trg_conexao_atualizado_em
     BEFORE UPDATE ON core.fato_conexao_ecossistema
@@ -130,6 +156,9 @@ CREATE INDEX IF NOT EXISTS ix_conexao_origem ON core.fato_conexao_ecossistema (i
 CREATE INDEX IF NOT EXISTS ix_conexao_destino ON core.fato_conexao_ecossistema (id_organizacao_destino);
 CREATE INDEX IF NOT EXISTS ix_conexao_projeto ON core.fato_conexao_ecossistema (id_projeto);
 CREATE INDEX IF NOT EXISTS ix_conexao_tipo ON core.fato_conexao_ecossistema (tipo_conexao);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_conexao_origem_externa
+    ON core.fato_conexao_ecossistema (id_origem_externa)
+    WHERE id_origem_externa IS NOT NULL;
 
 -- --------------------------------------------------- fato_adocao_tecnologica
 -- Grao: organizacao + tecnologia + periodo.
@@ -194,6 +223,15 @@ CREATE TABLE IF NOT EXISTS core.fato_desempenho_organizacao (
     )
 );
 COMMENT ON TABLE core.fato_desempenho_organizacao IS 'Indicadores anuais de desempenho economico-financeiro por organizacao. Nunca atualiza um ano fechado com valor de outro ano.';
+COMMENT ON COLUMN core.fato_desempenho_organizacao.investimento_p_d IS
+    'FONTE DE VERDADE para o KPI "intensidade de P&D" (mart.vw_intensidade_p_d = '
+    'investimento_p_d / faturamento), por ser autodeclarado no MESMO grao e pela MESMA fonte que '
+    'o faturamento (evita comparar numerador e denominador de levantamentos diferentes). '
+    'E um total anual autodeclarado, podendo divergir da soma categorizada em '
+    'core.fato_investimento_inovacao (categoria=''p_d''), que e mais granular (por fonte de '
+    'recurso/projeto) mas pode estar incompleta se nem todo investimento foi lancado por categoria. '
+    'As duas metricas NUNCA devem ser somadas entre si; para investigar divergencias, use '
+    'mart.vw_conciliacao_investimento_pd.';
 
 CREATE OR REPLACE TRIGGER trg_desempenho_atualizado_em
     BEFORE UPDATE ON core.fato_desempenho_organizacao
@@ -247,6 +285,7 @@ CREATE TABLE IF NOT EXISTS core.fato_propriedade_intelectual (
     status                  text NOT NULL DEFAULT 'depositado',
     licenciada               boolean NOT NULL DEFAULT false,
     receita_licenciamento   numeric(16, 2),
+    id_origem_externa       text,
     fonte_dado              text NOT NULL,
     data_coleta             date,
     criado_em               timestamptz NOT NULL DEFAULT now(),
@@ -263,6 +302,8 @@ CREATE TABLE IF NOT EXISTS core.fato_propriedade_intelectual (
     )
 );
 COMMENT ON TABLE core.fato_propriedade_intelectual IS 'Ativos de propriedade intelectual (patentes, marcas, software, cultivares) gerados pelas organizacoes.';
+COMMENT ON COLUMN core.fato_propriedade_intelectual.id_origem_externa IS
+    'Identificador estavel do registro na fonte (ex.: numero_registro quando existir, ou o mesmo padrao de fato_inovacao.id_origem_externa), para upsert idempotente em reprocessamentos.';
 
 CREATE OR REPLACE TRIGGER trg_pi_atualizado_em
     BEFORE UPDATE ON core.fato_propriedade_intelectual
@@ -271,3 +312,6 @@ CREATE OR REPLACE TRIGGER trg_pi_atualizado_em
 CREATE INDEX IF NOT EXISTS ix_pi_organizacao ON core.fato_propriedade_intelectual (id_organizacao);
 CREATE INDEX IF NOT EXISTS ix_pi_projeto ON core.fato_propriedade_intelectual (id_projeto);
 CREATE INDEX IF NOT EXISTS ix_pi_status ON core.fato_propriedade_intelectual (status);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pi_origem_externa
+    ON core.fato_propriedade_intelectual (id_origem_externa)
+    WHERE id_origem_externa IS NOT NULL;

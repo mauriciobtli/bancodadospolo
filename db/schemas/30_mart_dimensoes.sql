@@ -54,7 +54,9 @@ SELECT
     o.ano_fundacao,
     o.site,
     o.ativa,
-    o.data_entrada_ecossistema
+    o.data_entrada_ecossistema,
+    o.data_saida_ecossistema,
+    o.motivo_saida
 FROM core.dim_organizacao o
 LEFT JOIN core.dim_municipio m ON m.id_municipio = o.id_municipio
 LEFT JOIN core.dim_setor s ON s.id_setor = o.id_setor;
@@ -91,3 +93,51 @@ LEFT JOIN core.dim_setor s ON s.id_setor = p.id_setor
 LEFT JOIN core.dim_tecnologia t ON t.id_tecnologia = p.id_tecnologia_principal
 LEFT JOIN core.dim_problema_alvo pa ON pa.id_problema_alvo = p.id_problema_alvo;
 COMMENT ON VIEW mart.dim_projeto IS 'Projetos com nomes de dimensoes relacionadas ja resolvidos, para simplificar o modelo consumido pelo Power BI.';
+
+-- =========================================================================
+-- Universo pesquisado / cobertura de coleta
+-- =========================================================================
+
+CREATE OR REPLACE VIEW mart.dim_ciclo_coleta AS
+SELECT id_ciclo, nome, ano_referencia, data_inicio, data_fim, tipo_cobertura, descricao
+FROM core.ciclo_coleta;
+COMMENT ON VIEW mart.dim_ciclo_coleta IS 'Rodadas de coleta/pesquisa (ex.: "Pesquisa Polo Inovale 2024").';
+
+CREATE OR REPLACE VIEW mart.universo_pesquisado AS
+SELECT
+    up.id_ciclo,
+    up.id_organizacao,
+    o.nome AS organizacao_nome,
+    up.elegivel,
+    up.motivo_inelegibilidade
+FROM core.universo_pesquisado up
+JOIN core.dim_organizacao o ON o.id_organizacao = up.id_organizacao;
+COMMENT ON VIEW mart.universo_pesquisado IS 'Sampling frame de cada ciclo de coleta: organizacoes dentro do escopo, elegiveis ou nao.';
+
+CREATE OR REPLACE VIEW mart.cobertura_coleta AS
+SELECT
+    cc.id_ciclo,
+    cc.id_organizacao,
+    o.nome AS organizacao_nome,
+    cc.respondeu,
+    cc.data_resposta,
+    cc.instrumento
+FROM core.cobertura_coleta cc
+JOIN core.dim_organizacao o ON o.id_organizacao = cc.id_organizacao;
+COMMENT ON VIEW mart.cobertura_coleta IS 'Quem efetivamente respondeu (ou nao) a cada ciclo de coleta.';
+
+-- Respondentes elegiveis: organizacoes no universo pesquisado (elegivel)
+-- E que responderam ao ciclo. Base do denominador de mart.vw_taxa_empresas_inovadoras,
+-- mart.vw_taxa_primeira_inovacao e mart.vw_adocao_tecnologia — substitui o uso de
+-- "todas as organizacoes ativas" ou de fato_desempenho_organizacao como proxy.
+CREATE OR REPLACE VIEW mart.vw_respondentes_elegiveis AS
+SELECT
+    cc.id_ciclo,
+    c.ano_referencia AS ano,
+    cc.id_organizacao
+FROM core.cobertura_coleta cc
+JOIN core.universo_pesquisado up
+    ON up.id_ciclo = cc.id_ciclo AND up.id_organizacao = cc.id_organizacao
+JOIN core.ciclo_coleta c ON c.id_ciclo = cc.id_ciclo
+WHERE cc.respondeu AND up.elegivel;
+COMMENT ON VIEW mart.vw_respondentes_elegiveis IS 'Organizacoes elegiveis (universo_pesquisado) que efetivamente responderam (cobertura_coleta) em cada ciclo — base do denominador dos KPIs de cobertura.';

@@ -133,3 +133,171 @@ def test_fato_conexao_ecossistema_rejeita_origem_igual_destino(db_conn):
                 ),
                 {"id_org": id_org},
             )
+
+
+def test_fato_investimento_rejeita_duplicidade_com_id_projeto_nulo(db_conn):
+    """UNIQUE NULLS NOT DISTINCT: duas linhas com o mesmo grao e AMBAS sem
+    id_projeto devem ser tratadas como duplicata, nao como registros distintos."""
+    id_org = _criar_organizacao(db_conn)
+    id_fonte = db_conn.execute(text("SELECT id_fonte_recurso FROM core.dim_fonte_recurso LIMIT 1")).scalar_one()
+    params = {
+        "id_organizacao": id_org,
+        "id_tempo": ID_TEMPO_EXEMPLO,
+        "id_fonte_recurso": id_fonte,
+    }
+    db_conn.execute(
+        text(
+            """
+            INSERT INTO core.fato_investimento_inovacao
+                (id_organizacao, id_tempo, id_fonte_recurso, categoria, valor, fonte_dado)
+            VALUES (:id_organizacao, :id_tempo, :id_fonte_recurso, 'p_d', 1000, 'teste')
+            """
+        ),
+        params,
+    )
+    with pytest.raises(IntegrityError):
+        with db_conn.begin_nested():
+            db_conn.execute(
+                text(
+                    """
+                    INSERT INTO core.fato_investimento_inovacao
+                        (id_organizacao, id_tempo, id_fonte_recurso, categoria, valor, fonte_dado)
+                    VALUES (:id_organizacao, :id_tempo, :id_fonte_recurso, 'p_d', 2000, 'teste')
+                    """
+                ),
+                params,
+            )
+
+
+def test_bridge_projeto_organizacao_rejeita_papel_fora_do_dominio(db_conn):
+    id_org = _criar_organizacao(db_conn)
+    id_projeto = db_conn.execute(
+        text("INSERT INTO core.projeto (nome, fonte_dado) VALUES ('Projeto Teste', 'teste') RETURNING id_projeto")
+    ).scalar_one()
+    with pytest.raises(IntegrityError):
+        with db_conn.begin_nested():
+            db_conn.execute(
+                text(
+                    """
+                    INSERT INTO core.bridge_projeto_organizacao (id_projeto, id_organizacao, papel, fonte_dado)
+                    VALUES (:id_projeto, :id_organizacao, 'papel_inexistente', 'teste')
+                    """
+                ),
+                {"id_projeto": id_projeto, "id_organizacao": id_org},
+            )
+
+
+def test_bridge_projeto_tecnologia_rejeita_mais_de_uma_principal(db_conn):
+    id_projeto = db_conn.execute(
+        text("INSERT INTO core.projeto (nome, fonte_dado) VALUES ('Projeto Teste', 'teste') RETURNING id_projeto")
+    ).scalar_one()
+    tecnologias = db_conn.execute(text("SELECT id_tecnologia FROM core.dim_tecnologia LIMIT 2")).scalars().all()
+    db_conn.execute(
+        text(
+            """
+            INSERT INTO core.bridge_projeto_tecnologia (id_projeto, id_tecnologia, principal)
+            VALUES (:id_projeto, :id_tecnologia, true)
+            """
+        ),
+        {"id_projeto": id_projeto, "id_tecnologia": tecnologias[0]},
+    )
+    with pytest.raises(IntegrityError):
+        with db_conn.begin_nested():
+            db_conn.execute(
+                text(
+                    """
+                    INSERT INTO core.bridge_projeto_tecnologia (id_projeto, id_tecnologia, principal)
+                    VALUES (:id_projeto, :id_tecnologia, true)
+                    """
+                ),
+                {"id_projeto": id_projeto, "id_tecnologia": tecnologias[1]},
+            )
+
+
+def test_dim_organizacao_rejeita_data_saida_antes_da_entrada(db_conn):
+    with pytest.raises(IntegrityError):
+        with db_conn.begin_nested():
+            db_conn.execute(
+                text(
+                    """
+                    INSERT INTO core.dim_organizacao
+                        (nome, tipo_organizacao, data_entrada_ecossistema, data_saida_ecossistema, fonte_dado)
+                    VALUES ('Organizacao Invalida', 'empresa', '2024-06-01', '2024-01-01', 'teste')
+                    """
+                )
+            )
+
+
+def test_cobertura_coleta_distingue_nao_respondente_de_declarou_nao_utilizar(db_conn):
+    """Base do requisito: distinguir organizacao nao-respondente de
+    organizacao que respondeu e declarou nao utilizar uma tecnologia."""
+    id_org_respondente = _criar_organizacao(db_conn, nome="Respondente Declarou Nao Uso")
+    id_org_nao_respondente = _criar_organizacao(db_conn, nome="Nao Respondente")
+
+    id_ciclo = db_conn.execute(
+        text(
+            """
+            INSERT INTO core.ciclo_coleta (nome, ano_referencia, fonte_dado)
+            VALUES ('Ciclo Teste', 2024, 'teste')
+            RETURNING id_ciclo
+            """
+        )
+    ).scalar_one()
+
+    for id_org in (id_org_respondente, id_org_nao_respondente):
+        db_conn.execute(
+            text(
+                """
+                INSERT INTO core.universo_pesquisado (id_ciclo, id_organizacao, elegivel, fonte_dado)
+                VALUES (:id_ciclo, :id_organizacao, true, 'teste')
+                """
+            ),
+            {"id_ciclo": id_ciclo, "id_organizacao": id_org},
+        )
+
+    db_conn.execute(
+        text(
+            """
+            INSERT INTO core.cobertura_coleta (id_ciclo, id_organizacao, respondeu, fonte_dado)
+            VALUES (:id_ciclo, :id_org_respondeu, true, 'teste'),
+                   (:id_ciclo, :id_org_nao_respondeu, false, 'teste')
+            """
+        ),
+        {"id_ciclo": id_ciclo, "id_org_respondeu": id_org_respondente, "id_org_nao_respondeu": id_org_nao_respondente},
+    )
+
+    id_tecnologia = db_conn.execute(text("SELECT id_tecnologia FROM core.dim_tecnologia LIMIT 1")).scalar_one()
+    db_conn.execute(
+        text(
+            """
+            INSERT INTO core.fato_adocao_tecnologica
+                (id_organizacao, id_tecnologia, id_tempo, id_ciclo, nivel_adocao, fonte_dado)
+            VALUES (:id_organizacao, :id_tecnologia, :id_tempo, :id_ciclo, 0, 'teste')
+            """
+        ),
+        {
+            "id_organizacao": id_org_respondente,
+            "id_tecnologia": id_tecnologia,
+            "id_tempo": ID_TEMPO_EXEMPLO,
+            "id_ciclo": id_ciclo,
+        },
+    )
+
+    respondentes = db_conn.execute(
+        text("SELECT id_organizacao FROM mart.vw_respondentes_elegiveis WHERE id_ciclo = :id_ciclo"),
+        {"id_ciclo": id_ciclo},
+    ).scalars().all()
+    assert id_org_respondente in respondentes
+    assert id_org_nao_respondente not in respondentes
+
+    adocao = db_conn.execute(
+        text(
+            "SELECT nivel_adocao, qtd_organizacoes, total_respondentes FROM mart.vw_adocao_tecnologia "
+            "WHERE id_ciclo = :id_ciclo AND id_tecnologia = :id_tecnologia"
+        ),
+        {"id_ciclo": id_ciclo, "id_tecnologia": id_tecnologia},
+    ).first()
+    assert adocao is not None
+    assert adocao.nivel_adocao == 0
+    assert adocao.qtd_organizacoes == 1  # so o respondente que DECLAROU nao usar
+    assert adocao.total_respondentes == 1  # nao-respondente nao entra no denominador

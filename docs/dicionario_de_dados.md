@@ -20,6 +20,76 @@ Ponte N:N entre inovacao e tecnologias habilitadoras. principal marca a tecnolog
 | `criado_em` | timestamp with time zone | nao |  |
 
 
+### `core.bridge_projeto_organizacao`
+
+
+Participantes de um projeto e seus papeis (N:N). Permite multiplos parceiros/executores/financiadores por projeto, e multiplos papeis para a mesma organizacao.
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_projeto` | bigint | nao |  |
+| `id_organizacao` | bigint | nao |  |
+| `papel` | text | nao |  |
+| `data_entrada` | date | sim |  |
+| `data_saida` | date | sim |  |
+| `fonte_dado` | text | nao |  |
+| `criado_em` | timestamp with time zone | nao |  |
+
+
+### `core.bridge_projeto_tecnologia`
+
+
+Tecnologias associadas a um projeto (N:N). principal marca a tecnologia mais relevante (deve corresponder a core.projeto.id_tecnologia_principal quando preenchida).
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_projeto` | bigint | nao |  |
+| `id_tecnologia` | bigint | nao |  |
+| `principal` | boolean | nao |  |
+| `criado_em` | timestamp with time zone | nao |  |
+
+
+### `core.ciclo_coleta`
+
+
+Uma rodada de coleta/pesquisa (ex.: "Pesquisa Polo Inovale 2024"). Base temporal para universo_pesquisado e cobertura_coleta.
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_ciclo` | bigint | nao |  |
+| `nome` | text | nao |  |
+| `ano_referencia` | smallint | nao |  |
+| `data_inicio` | date | sim |  |
+| `data_fim` | date | sim |  |
+| `tipo_cobertura` | text | nao |  |
+| `descricao` | text | sim |  |
+| `fonte_dado` | text | nao |  |
+| `criado_em` | timestamp with time zone | nao |  |
+| `atualizado_em` | timestamp with time zone | nao |  |
+
+
+### `core.cobertura_coleta`
+
+
+Registra, por organizacao e ciclo, se houve resposta efetiva. Junto com universo_pesquisado, forma a base de "respondentes elegiveis" usada como denominador dos KPIs de cobertura (ver mart.vw_respondentes_elegiveis).
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_ciclo` | bigint | nao |  |
+| `id_organizacao` | bigint | nao |  |
+| `respondeu` | boolean | nao |  |
+| `data_resposta` | date | sim |  |
+| `instrumento` | text | sim | Como a resposta foi coletada: formulario, entrevista, planilha, etc. |
+| `observacao` | text | sim |  |
+| `fonte_dado` | text | nao |  |
+| `criado_em` | timestamp with time zone | nao |  |
+| `atualizado_em` | timestamp with time zone | nao |  |
+
+
 ### `core.contato_organizacao`
 
 
@@ -111,6 +181,8 @@ Empresas, startups, universidades, ICTs, governo, associacoes etc. Apenas dados 
 | `site` | text | sim |  |
 | `ativa` | boolean | nao |  |
 | `data_entrada_ecossistema` | date | sim |  |
+| `data_saida_ecossistema` | date | sim | Complementa data_entrada_ecossistema: quando preenchida (junto com ativa=false), registra quando a organizacao deixou de fazer parte do ecossistema acompanhado. Base para futuras metricas de sobrevivencia/renovacao empresarial (ver mart.vw_cohort_sobrevivencia_empresarial). |
+| `motivo_saida` | text | sim |  |
 | `fonte_dado` | text | nao |  |
 | `data_coleta` | date | sim |  |
 | `criado_em` | timestamp with time zone | nao |  |
@@ -217,6 +289,7 @@ Nivel de adocao de cada tecnologia por organizacao e periodo. 0=nao utiliza .. 4
 | `data_coleta` | date | sim |  |
 | `criado_em` | timestamp with time zone | nao |  |
 | `atualizado_em` | timestamp with time zone | nao |  |
+| `id_ciclo` | bigint | sim | Ciclo de coleta que originou esta medicao. Obrigatorio, na pratica, para que a organizacao entre no denominador de mart.vw_adocao_tecnologia (respondentes elegiveis do ciclo). |
 
 
 ### `core.fato_conexao_ecossistema`
@@ -238,6 +311,7 @@ Relacao dirigida entre dois atores do ecossistema (pesquisa, parceria, contrato,
 | `gerou_projeto` | boolean | nao |  |
 | `gerou_contrato` | boolean | nao |  |
 | `gerou_inovacao` | boolean | nao |  |
+| `id_origem_externa` | text | sim | Identificador estavel do registro na fonte, para permitir upsert idempotente em reprocessamentos (mesmo mecanismo de fato_inovacao.id_origem_externa). |
 | `fonte_dado` | text | nao |  |
 | `data_coleta` | date | sim |  |
 | `criado_em` | timestamp with time zone | nao |  |
@@ -260,7 +334,7 @@ Indicadores anuais de desempenho economico-financeiro por organizacao. Nunca atu
 | `numero_empregados_tecnologia` | integer | sim |  |
 | `exportacoes` | numeric | sim |  |
 | `receita_produtos_novos` | numeric | sim |  |
-| `investimento_p_d` | numeric | sim |  |
+| `investimento_p_d` | numeric | sim | FONTE DE VERDADE para o KPI "intensidade de P&D" (mart.vw_intensidade_p_d = investimento_p_d / faturamento), por ser autodeclarado no MESMO grao e pela MESMA fonte que o faturamento (evita comparar numerador e denominador de levantamentos diferentes). E um total anual autodeclarado, podendo divergir da soma categorizada em core.fato_investimento_inovacao (categoria='p_d'), que e mais granular (por fonte de recurso/projeto) mas pode estar incompleta se nem todo investimento foi lancado por categoria. As duas metricas NUNCA devem ser somadas entre si; para investigar divergencias, use mart.vw_conciliacao_investimento_pd. |
 | `custos_reduzidos_por_inovacao` | numeric | sim |  |
 | `fonte_dado` | text | nao |  |
 | `data_coleta` | date | sim |  |
@@ -295,6 +369,7 @@ Uma inovacao individual (produto, servico, processo, modelo de negocio ou tecnol
 | `aumento_capacidade_percentual` | numeric | sim |  |
 | `empregos_criados` | integer | nao |  |
 | `empregos_qualificados_criados` | integer | nao |  |
+| `id_origem_externa` | text | sim | Identificador estavel do registro na fonte (ex.: id de resposta de formulario, ou '<arquivo_origem>#<linha_origem>' quando a fonte nao tem id proprio). Junto com o indice unico parcial abaixo, permite ao ETL fazer INSERT ... ON CONFLICT (id_origem_externa) DO UPDATE em reprocessamentos, evitando duplicar a mesma inovacao a cada nova carga do mesmo arquivo. |
 | `fonte_dado` | text | nao |  |
 | `data_coleta` | date | sim |  |
 | `criado_em` | timestamp with time zone | nao |  |
@@ -314,7 +389,7 @@ Investimentos em inovacao por organizacao, periodo, fonte de recurso e categoria
 | `id_tempo` | bigint | nao |  |
 | `id_fonte_recurso` | bigint | nao |  |
 | `id_projeto` | bigint | sim | Vinculo opcional ao projeto financiado. Usado pelas views mart.vw_investimento_por_tecnologia/setor para herdar a tecnologia/setor do projeto quando o investimento nao e diretamente ligado a organizacao. |
-| `categoria` | text | nao |  |
+| `categoria` | text | nao | FONTE DE VERDADE para o detalhamento de investimento em P&D por fonte de recurso/projeto/tecnologia (categoria = 'p_d'): soma de core.fato_investimento_inovacao.valor WHERE categoria='p_d'. E uma fonte DIFERENTE de core.fato_desempenho_organizacao.investimento_p_d (total anual autodeclarado pela organizacao) — nao devem ser somadas nem comparadas como se fossem a mesma medida. Ver comentario em fato_desempenho_organizacao.investimento_p_d e mart.vw_conciliacao_investimento_pd. |
 | `valor` | numeric | nao |  |
 | `observacao` | text | sim |  |
 | `fonte_dado` | text | nao |  |
@@ -342,6 +417,7 @@ Ativos de propriedade intelectual (patentes, marcas, software, cultivares) gerad
 | `status` | text | nao |  |
 | `licenciada` | boolean | nao |  |
 | `receita_licenciamento` | numeric | sim |  |
+| `id_origem_externa` | text | sim | Identificador estavel do registro na fonte (ex.: numero_registro quando existir, ou o mesmo padrao de fato_inovacao.id_origem_externa), para upsert idempotente em reprocessamentos. |
 | `fonte_dado` | text | nao |  |
 | `data_coleta` | date | sim |  |
 | `criado_em` | timestamp with time zone | nao |  |
@@ -402,6 +478,23 @@ Projetos de inovacao/P&D. valor_total e orcado/planejado; investimento realizado
 | `atualizado_em` | timestamp with time zone | nao |  |
 
 
+### `core.universo_pesquisado`
+
+
+Sampling frame: organizacoes dentro do escopo de um ciclo de coleta. elegivel=false registra exclusoes (ex.: organizacao encerrada antes do ciclo) sem apagar a linha.
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_ciclo` | bigint | nao |  |
+| `id_organizacao` | bigint | nao |  |
+| `elegivel` | boolean | nao |  |
+| `motivo_inelegibilidade` | text | sim |  |
+| `fonte_dado` | text | nao |  |
+| `criado_em` | timestamp with time zone | nao |  |
+| `atualizado_em` | timestamp with time zone | nao |  |
+
+
 ## Schema `mart`
 
 
@@ -416,6 +509,70 @@ Relacionamento N:N explicito inovacao-tecnologia. Usar com cautela no Power BI (
 | `id_inovacao` | bigint | sim |  |
 | `id_tecnologia` | bigint | sim |  |
 | `principal` | boolean | sim |  |
+
+
+### `mart.bridge_projeto_organizacao`
+
+
+Participantes de cada projeto e seus papeis (lider, parceiro, executor, financiador, universidade, ICT, fornecedor...). N:N — use com cautela no Power BI (fanout); mart.dim_projeto.organizacao_lider_nome cobre o caso comum de "quem lidera".
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_projeto` | bigint | sim |  |
+| `id_organizacao` | bigint | sim |  |
+| `organizacao_nome` | text | sim |  |
+| `tipo_organizacao` | text | sim |  |
+| `papel` | text | sim |  |
+| `data_entrada` | date | sim |  |
+| `data_saida` | date | sim |  |
+
+
+### `mart.bridge_projeto_tecnologia`
+
+
+Tecnologias associadas a cada projeto (N:N). Use com cautela no Power BI (fanout); mart.dim_projeto.tecnologia_principal_nome cobre o caso comum de "tecnologia principal".
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_projeto` | bigint | sim |  |
+| `id_tecnologia` | bigint | sim |  |
+| `tecnologia_nome` | text | sim |  |
+| `principal` | boolean | sim |  |
+
+
+### `mart.cobertura_coleta`
+
+
+Quem efetivamente respondeu (ou nao) a cada ciclo de coleta.
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_ciclo` | bigint | sim |  |
+| `id_organizacao` | bigint | sim |  |
+| `organizacao_nome` | text | sim |  |
+| `respondeu` | boolean | sim |  |
+| `data_resposta` | date | sim |  |
+| `instrumento` | text | sim |  |
+
+
+### `mart.dim_ciclo_coleta`
+
+
+Rodadas de coleta/pesquisa (ex.: "Pesquisa Polo Inovale 2024").
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_ciclo` | bigint | sim |  |
+| `nome` | text | sim |  |
+| `ano_referencia` | smallint | sim |  |
+| `data_inicio` | date | sim |  |
+| `data_fim` | date | sim |  |
+| `tipo_cobertura` | text | sim |  |
+| `descricao` | text | sim |  |
 
 
 ### `mart.dim_fonte_recurso`
@@ -478,6 +635,8 @@ Organizacoes do ecossistema, apenas dados publicos/institucionais (sem contato p
 | `site` | text | sim |  |
 | `ativa` | boolean | sim |  |
 | `data_entrada_ecossistema` | date | sim |  |
+| `data_saida_ecossistema` | date | sim |  |
+| `motivo_saida` | text | sim |  |
 
 
 ### `mart.dim_problema_alvo`
@@ -706,19 +865,38 @@ Fato inovacao achatado: tecnologia principal em coluna (sem N:N) + lista textual
 | `novas_contratacoes_qualificadas` | integer | sim |  |
 
 
-### `mart.vw_adocao_tecnologia`
+### `mart.universo_pesquisado`
 
 
-Percentual de organizacoes ativas por tecnologia e nivel de adocao mais recente (0=nao utiliza .. 4=critica).
+Sampling frame de cada ciclo de coleta: organizacoes dentro do escopo, elegiveis ou nao.
 
 
 | Coluna | Tipo | Nulo? | Descricao |
 |---|---|---|---|
+| `id_ciclo` | bigint | sim |  |
+| `id_organizacao` | bigint | sim |  |
+| `organizacao_nome` | text | sim |  |
+| `elegivel` | boolean | sim |  |
+| `motivo_inelegibilidade` | text | sim |  |
+
+
+### `mart.vw_adocao_tecnologia`
+
+
+Percentual de respondentes elegiveis (por ciclo de coleta) em cada nivel de adocao de cada tecnologia (0=declarou nao utilizar .. 4=critica). Organizacao nao-respondente ou fora do universo pesquisado nao aparece aqui.
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_ciclo` | bigint | sim |  |
+| `ciclo_coleta` | text | sim |  |
+| `ano` | smallint | sim |  |
 | `id_tecnologia` | bigint | sim |  |
 | `tecnologia` | text | sim |  |
 | `nivel_adocao` | smallint | sim |  |
 | `qtd_organizacoes` | bigint | sim |  |
-| `pct_organizacoes_ativas` | numeric | sim |  |
+| `total_respondentes` | bigint | sim |  |
+| `pct_organizacoes_respondentes` | numeric | sim |  |
 
 
 ### `mart.vw_bi_adocao_tecnologica`
@@ -729,17 +907,21 @@ Area 4 (adocao tecnologica): alias de mart.vw_adocao_tecnologia.
 
 | Coluna | Tipo | Nulo? | Descricao |
 |---|---|---|---|
+| `id_ciclo` | bigint | sim |  |
+| `ciclo_coleta` | text | sim |  |
+| `ano` | smallint | sim |  |
 | `id_tecnologia` | bigint | sim |  |
 | `tecnologia` | text | sim |  |
 | `nivel_adocao` | smallint | sim |  |
 | `qtd_organizacoes` | bigint | sim |  |
-| `pct_organizacoes_ativas` | numeric | sim |  |
+| `total_respondentes` | bigint | sim |  |
+| `pct_organizacoes_respondentes` | numeric | sim |  |
 
 
 ### `mart.vw_bi_empreendedorismo`
 
 
-Area 9 (empreendedorismo e destruicao criativa): entrada de novas organizacoes/startups e saida (inativacao) por ano. organizacoes_inativadas e aproximado pela data da ultima atualizacao do registro.
+Area 9 (empreendedorismo e destruicao criativa): entrada de novas organizacoes/startups (data_entrada_ecossistema) e saidas registradas (data_saida_ecossistema) por ano. Para sobrevivencia por coorte, ver mart.vw_cohort_sobrevivencia_empresarial.
 
 
 | Coluna | Tipo | Nulo? | Descricao |
@@ -747,7 +929,7 @@ Area 9 (empreendedorismo e destruicao criativa): entrada de novas organizacoes/s
 | `ano` | smallint | sim |  |
 | `novas_organizacoes` | bigint | sim |  |
 | `novas_startups` | bigint | sim |  |
-| `organizacoes_inativadas` | bigint | sim |  |
+| `organizacoes_saidas` | bigint | sim |  |
 
 
 ### `mart.vw_bi_impacto_economico`
@@ -877,6 +1059,38 @@ Area 1 (visao executiva): principais indicadores do observatorio, por ano.
 | `investimento_medio_por_inovacao` | numeric | sim |  |
 
 
+### `mart.vw_cohort_sobrevivencia_empresarial`
+
+
+Snapshot (nao serie temporal) de sobrevivencia por coorte de entrada no ecossistema: quantas organizacoes de cada ano de entrada ainda estao ativas hoje. Estrutura preparada para evoluir para uma curva de sobrevivencia completa quando houver snapshots periodicos de status.
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `ano_coorte` | smallint | sim |  |
+| `organizacoes_na_coorte` | bigint | sim |  |
+| `organizacoes_ainda_ativas` | bigint | sim |  |
+| `organizacoes_saidas` | bigint | sim |  |
+| `taxa_sobrevivencia_atual_pct` | numeric | sim |  |
+| `anos_medios_no_ecossistema` | numeric | sim |  |
+
+
+### `mart.vw_conciliacao_investimento_pd`
+
+
+Compara, por organizacao e ano, o P&D autodeclarado (fato_desempenho_organizacao.investimento_p_d) com a soma categorizada (fato_investimento_inovacao, categoria='p_d'). Divergencia grande pode indicar lancamento incompleto por categoria — nao e um erro de sistema, e uma diferenca esperada entre dois instrumentos de coleta distintos.
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_organizacao` | bigint | sim |  |
+| `ano` | smallint | sim |  |
+| `investimento_p_d_autodeclarado` | numeric | sim |  |
+| `investimento_p_d_categorizado` | numeric | sim |  |
+| `diferenca` | numeric | sim |  |
+| `diferenca_pct` | numeric | sim |  |
+
+
 ### `mart.vw_conversao_conexoes_projetos`
 
 
@@ -921,7 +1135,7 @@ Quantidade e percentual de inovacoes por grau de novidade (empresa, regional, na
 ### `mart.vw_intensidade_p_d`
 
 
-Intensidade de P&D: investimento_p_d / faturamento * 100, por organizacao e ano.
+Intensidade de P&D: investimento_p_d / faturamento * 100, por organizacao e ano. Fonte de verdade para este KPI e core.fato_desempenho_organizacao.investimento_p_d (autodeclarado, mesmo grao do faturamento) — ver mart.vw_conciliacao_investimento_pd para comparar com o detalhamento categorizado.
 
 
 | Coluna | Tipo | Nulo? | Descricao |
@@ -1081,32 +1295,45 @@ Grau de cada organizacao (numero de conexoes) e ranking de conectividade — bas
 | `ranking_conectividade` | bigint | sim |  |
 
 
+### `mart.vw_respondentes_elegiveis`
+
+
+Organizacoes elegiveis (universo_pesquisado) que efetivamente responderam (cobertura_coleta) em cada ciclo — base do denominador dos KPIs de cobertura.
+
+
+| Coluna | Tipo | Nulo? | Descricao |
+|---|---|---|---|
+| `id_ciclo` | bigint | sim |  |
+| `ano` | smallint | sim |  |
+| `id_organizacao` | bigint | sim |  |
+
+
 ### `mart.vw_taxa_empresas_inovadoras`
 
 
-Percentual de empresas acompanhadas com pelo menos uma inovacao implementada no ano.
+Percentual de respondentes elegiveis (mart.vw_respondentes_elegiveis) com pelo menos uma inovacao implementada no ano. Requer ciclo_coleta/universo_pesquisado/cobertura_coleta preenchidos para o ano — sem isso, o ano nao aparece (nao ha "todas ativas" como fallback).
 
 
 | Coluna | Tipo | Nulo? | Descricao |
 |---|---|---|---|
 | `ano` | smallint | sim |  |
 | `empresas_inovadoras` | bigint | sim |  |
-| `empresas_acompanhadas` | bigint | sim |  |
+| `empresas_respondentes` | bigint | sim |  |
 | `taxa_empresas_inovadoras_pct` | numeric | sim |  |
 
 
-### `mart.vw_taxa_renovacao_empresarial_inovadora`
+### `mart.vw_taxa_primeira_inovacao`
 
 
-Percentual de empresas que estrearam como inovadoras no ano, sobre o total acompanhado.
+Percentual de respondentes elegiveis do ano que implementaram sua PRIMEIRA inovacao naquele ano. Nao e uma medida de renovacao empresarial (entrada/saida de organizacoes) — para isso, ver mart.vw_cohort_sobrevivencia_empresarial.
 
 
 | Coluna | Tipo | Nulo? | Descricao |
 |---|---|---|---|
 | `ano` | smallint | sim |  |
-| `novas_empresas_inovadoras` | bigint | sim |  |
-| `total_empresas_acompanhadas` | bigint | sim |  |
-| `taxa_renovacao_pct` | numeric | sim |  |
+| `empresas_primeira_inovacao` | bigint | sim |  |
+| `empresas_respondentes` | bigint | sim |  |
+| `taxa_primeira_inovacao_pct` | numeric | sim |  |
 
 
 ---

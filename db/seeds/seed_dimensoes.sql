@@ -92,14 +92,30 @@ INSERT INTO core.dim_problema_alvo (codigo, nome) VALUES
 ON CONFLICT (codigo) DO NOTHING;
 
 -- ---------------------------------------------------------------- dim_municipio
--- ATENCAO: lista inicial minima (a confirmar com o Polo Inovale a area de
--- atuacao completa — ver "Ambiguidades" no planejamento). Demais municipios
--- podem ser inseridos via ETL (loader de organizacoes faz upsert por
--- codigo_ibge quando o municipio ainda nao existir).
+-- Area de atuacao oficial do Polo Inovale: os 12 municipios da AMMOC
+-- (Associacao dos Municipios do Meio Oeste Catarinense). Codigos IBGE
+-- (7 digitos) conferidos em setembro/2026 contra multiplas fontes
+-- independentes (IBGE Cidades, Censo 2022, QualoCEP) — recomenda-se uma
+-- confirmacao final contra a tabela oficial do IBGE
+-- (https://www.ibge.gov.br/explica/codigos-dos-municipios.php) antes do
+-- primeiro uso em producao.
+--
+-- Demais municipios (fora da AMMOC, mas que venham a se relacionar com o
+-- ecossistema — ex.: sede de uma universidade parceira) podem ser
+-- inseridos via ETL com pertence_area_atuacao=false; o loader de
+-- organizacoes faz upsert por codigo_ibge quando o municipio ainda nao
+-- existir.
 INSERT INTO core.dim_municipio (codigo_ibge, nome, uf, regiao, pertence_area_atuacao, fonte_dado) VALUES
-    ('4205407', 'Florianopolis', 'SC', 'sul', true, 'seed'),
-    ('4204202', 'Chapeco',        'SC', 'sul', true, 'seed'),
-    ('4209300', 'Joinville',      'SC', 'sul', true, 'seed'),
-    ('4202404', 'Blumenau',       'SC', 'sul', true, 'seed'),
-    ('4216602', 'Xanxere',        'SC', 'sul', true, 'seed')
+    ('4209003', 'Joacaba',         'SC', 'sul', true, 'seed_ammoc'),
+    ('4206702', 'Herval d''Oeste', 'SC', 'sul', true, 'seed_ammoc'),
+    ('4210035', 'Luzerna',         'SC', 'sul', true, 'seed_ammoc'),
+    ('4206801', 'Ibicare',         'SC', 'sul', true, 'seed_ammoc'),
+    ('4218509', 'Treze Tilias',    'SC', 'sul', true, 'seed_ammoc'),
+    ('4211801', 'Ouro',            'SC', 'sul', true, 'seed_ammoc'),
+    ('4203907', 'Capinzal',        'SC', 'sul', true, 'seed_ammoc'),
+    ('4205209', 'Erval Velho',     'SC', 'sul', true, 'seed_ammoc'),
+    ('4209201', 'Lacerdopolis',    'SC', 'sul', true, 'seed_ammoc'),
+    ('4204004', 'Catanduvas',      'SC', 'sul', true, 'seed_ammoc'),
+    ('4200408', 'Agua Doce',       'SC', 'sul', true, 'seed_ammoc'),
+    ('4219176', 'Vargem Bonita',   'SC', 'sul', true, 'seed_ammoc')
 ON CONFLICT (codigo_ibge) DO NOTHING;

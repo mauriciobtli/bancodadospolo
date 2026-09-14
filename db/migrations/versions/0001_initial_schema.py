@@ -25,6 +25,7 @@ def upgrade() -> None:
     run_sql_file("db", "schemas", "21_core_projeto.sql")
     run_sql_file("db", "schemas", "22_core_fatos.sql")
     run_sql_file("db", "schemas", "23_core_bridges.sql")
+    run_sql_file("db", "schemas", "24_core_cobertura.sql")
 
 
 def downgrade() -> None:

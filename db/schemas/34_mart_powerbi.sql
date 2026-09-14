@@ -149,21 +149,48 @@ WITH entrada_ecossistema AS (
     GROUP BY 1
 ),
 saidas AS (
-    SELECT extract(year FROM o.atualizado_em)::smallint AS ano,
-           count(DISTINCT o.id_organizacao) AS organizacoes_inativadas
-    FROM core.dim_organizacao o
-    WHERE NOT o.ativa
+    SELECT extract(year FROM data_saida_ecossistema)::smallint AS ano,
+           count(DISTINCT id_organizacao) AS organizacoes_saidas
+    FROM core.dim_organizacao
+    WHERE data_saida_ecossistema IS NOT NULL
     GROUP BY 1
 )
 SELECT
     coalesce(e.ano, s.ano) AS ano,
     e.novas_organizacoes,
     e.novas_startups,
-    s.organizacoes_inativadas
+    s.organizacoes_saidas
 FROM entrada_ecossistema e
 FULL OUTER JOIN saidas s ON s.ano = e.ano
 ORDER BY 1;
-COMMENT ON VIEW mart.vw_bi_empreendedorismo IS 'Area 9 (empreendedorismo e destruicao criativa): entrada de novas organizacoes/startups e saida (inativacao) por ano. organizacoes_inativadas e aproximado pela data da ultima atualizacao do registro.';
+COMMENT ON VIEW mart.vw_bi_empreendedorismo IS 'Area 9 (empreendedorismo e destruicao criativa): entrada de novas organizacoes/startups (data_entrada_ecossistema) e saidas registradas (data_saida_ecossistema) por ano. Para sobrevivencia por coorte, ver mart.vw_cohort_sobrevivencia_empresarial.';
+
+-- ----------------------------------------------------------------------
+-- Estrutura para futuras metricas de renovacao empresarial e sobrevivencia.
+--
+-- Esta view entrega um SNAPSHOT do estado atual de cada coorte de entrada
+-- (ano de data_entrada_ecossistema): quantas organizacoes entraram, quantas
+-- seguem ativas hoje e a idade media no ecossistema. Nao e ainda uma curva
+-- de sobrevivencia completa (que exigiria series temporais de status por
+-- periodo, nao apenas o estado atual) — e a base de dados minima (entrada +
+-- saida com data) sobre a qual essa analise pode ser construida depois,
+-- sem precisar de nova migracao de schema.
+-- ----------------------------------------------------------------------
+CREATE OR REPLACE VIEW mart.vw_cohort_sobrevivencia_empresarial AS
+SELECT
+    extract(year FROM data_entrada_ecossistema)::smallint AS ano_coorte,
+    count(*) AS organizacoes_na_coorte,
+    count(*) FILTER (WHERE ativa) AS organizacoes_ainda_ativas,
+    count(*) FILTER (WHERE NOT ativa) AS organizacoes_saidas,
+    round(100.0 * count(*) FILTER (WHERE ativa) / NULLIF(count(*), 0), 2) AS taxa_sobrevivencia_atual_pct,
+    round(avg(
+        extract(year FROM age(coalesce(data_saida_ecossistema, current_date), data_entrada_ecossistema))
+    ), 1) AS anos_medios_no_ecossistema
+FROM core.dim_organizacao
+WHERE data_entrada_ecossistema IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+COMMENT ON VIEW mart.vw_cohort_sobrevivencia_empresarial IS 'Snapshot (nao serie temporal) de sobrevivencia por coorte de entrada no ecossistema: quantas organizacoes de cada ano de entrada ainda estao ativas hoje. Estrutura preparada para evoluir para uma curva de sobrevivencia completa quando houver snapshots periodicos de status.';
 
 -- 10) Pipeline de inovacao (funil por status).
 CREATE OR REPLACE VIEW mart.vw_bi_pipeline_inovacao AS

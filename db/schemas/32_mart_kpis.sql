@@ -4,33 +4,38 @@
 -- por zero (retornam NULL em vez de falhar).
 -- =========================================================================
 
--- 1. Empresas com >=1 inovacao implementada no ano / empresas acompanhadas no ano.
--- "Empresas acompanhadas" = organizacoes com registro de desempenho no ano
--- (proxy para "respondentes"; ajustar se houver fonte melhor de respondentes).
+-- 1. Empresas com >=1 inovacao implementada no ano / respondentes elegiveis do ano.
+-- Denominador = mart.vw_respondentes_elegiveis (universo_pesquisado ∩
+-- cobertura_coleta), nao mais "todas as organizacoes ativas" nem o antigo
+-- proxy via fato_desempenho_organizacao. Numerador restrito aos proprios
+-- respondentes elegiveis (uma organizacao fora do universo pesquisado nao
+-- deve inflar a taxa mesmo que tenha inovado).
 CREATE OR REPLACE VIEW mart.vw_taxa_empresas_inovadoras AS
-WITH acompanhadas AS (
-    SELECT dt.ano, count(DISTINCT f.id_organizacao) AS empresas_acompanhadas
-    FROM core.fato_desempenho_organizacao f
-    JOIN core.dim_tempo dt ON dt.id_tempo = f.id_tempo
-    GROUP BY dt.ano
+WITH respondentes AS (
+    SELECT ano, count(DISTINCT id_organizacao) AS empresas_respondentes
+    FROM mart.vw_respondentes_elegiveis
+    GROUP BY ano
 ),
 inovadoras AS (
-    SELECT extract(year FROM data_implementacao)::smallint AS ano,
-           count(DISTINCT id_organizacao) AS empresas_inovadoras
-    FROM core.fato_inovacao
-    WHERE status = 'implementada' AND data_implementacao IS NOT NULL
-    GROUP BY 1
+    SELECT re.ano, count(DISTINCT fi.id_organizacao) AS empresas_inovadoras
+    FROM core.fato_inovacao fi
+    JOIN mart.vw_respondentes_elegiveis re
+        ON re.id_organizacao = fi.id_organizacao
+        AND re.ano = extract(year FROM fi.data_implementacao)::smallint
+    WHERE fi.status = 'implementada' AND fi.data_implementacao IS NOT NULL
+    GROUP BY re.ano
 )
 SELECT
-    a.ano,
+    r.ano,
     coalesce(i.empresas_inovadoras, 0) AS empresas_inovadoras,
-    a.empresas_acompanhadas,
-    round(100.0 * coalesce(i.empresas_inovadoras, 0) / NULLIF(a.empresas_acompanhadas, 0), 2) AS taxa_empresas_inovadoras_pct
-FROM acompanhadas a
-LEFT JOIN inovadoras i ON i.ano = a.ano;
-COMMENT ON VIEW mart.vw_taxa_empresas_inovadoras IS 'Percentual de empresas acompanhadas com pelo menos uma inovacao implementada no ano.';
+    r.empresas_respondentes,
+    round(100.0 * coalesce(i.empresas_inovadoras, 0) / NULLIF(r.empresas_respondentes, 0), 2) AS taxa_empresas_inovadoras_pct
+FROM respondentes r
+LEFT JOIN inovadoras i ON i.ano = r.ano;
+COMMENT ON VIEW mart.vw_taxa_empresas_inovadoras IS 'Percentual de respondentes elegiveis (mart.vw_respondentes_elegiveis) com pelo menos uma inovacao implementada no ano. Requer ciclo_coleta/universo_pesquisado/cobertura_coleta preenchidos para o ano — sem isso, o ano nao aparece (nao ha "todas ativas" como fallback).';
 
 -- 2. Investimento em P&D / faturamento, por organizacao e ano.
+-- Fonte de verdade: ver COMMENT ON COLUMN core.fato_desempenho_organizacao.investimento_p_d.
 CREATE OR REPLACE VIEW mart.vw_intensidade_p_d AS
 SELECT
     f.id_organizacao,
@@ -40,7 +45,35 @@ SELECT
     round(100.0 * f.investimento_p_d / NULLIF(f.faturamento, 0), 2) AS intensidade_p_d_pct
 FROM core.fato_desempenho_organizacao f
 JOIN core.dim_tempo dt ON dt.id_tempo = f.id_tempo;
-COMMENT ON VIEW mart.vw_intensidade_p_d IS 'Intensidade de P&D: investimento_p_d / faturamento * 100, por organizacao e ano.';
+COMMENT ON VIEW mart.vw_intensidade_p_d IS 'Intensidade de P&D: investimento_p_d / faturamento * 100, por organizacao e ano. Fonte de verdade para este KPI e core.fato_desempenho_organizacao.investimento_p_d (autodeclarado, mesmo grao do faturamento) — ver mart.vw_conciliacao_investimento_pd para comparar com o detalhamento categorizado.';
+
+-- Apoio: concilia as duas fontes de investimento em P&D (nunca somar uma na outra).
+CREATE OR REPLACE VIEW mart.vw_conciliacao_investimento_pd AS
+WITH autodeclarado AS (
+    SELECT f.id_organizacao, dt.ano, f.investimento_p_d AS investimento_p_d_autodeclarado
+    FROM core.fato_desempenho_organizacao f
+    JOIN core.dim_tempo dt ON dt.id_tempo = f.id_tempo
+),
+categorizado AS (
+    SELECT f.id_organizacao, dt.ano, sum(f.valor) AS investimento_p_d_categorizado
+    FROM core.fato_investimento_inovacao f
+    JOIN core.dim_tempo dt ON dt.id_tempo = f.id_tempo
+    WHERE f.categoria = 'p_d'
+    GROUP BY f.id_organizacao, dt.ano
+)
+SELECT
+    coalesce(a.id_organizacao, c.id_organizacao) AS id_organizacao,
+    coalesce(a.ano, c.ano) AS ano,
+    a.investimento_p_d_autodeclarado,
+    c.investimento_p_d_categorizado,
+    a.investimento_p_d_autodeclarado - coalesce(c.investimento_p_d_categorizado, 0) AS diferenca,
+    round(
+        100.0 * abs(a.investimento_p_d_autodeclarado - coalesce(c.investimento_p_d_categorizado, 0))
+        / NULLIF(a.investimento_p_d_autodeclarado, 0), 2
+    ) AS diferenca_pct
+FROM autodeclarado a
+FULL OUTER JOIN categorizado c ON c.id_organizacao = a.id_organizacao AND c.ano = a.ano;
+COMMENT ON VIEW mart.vw_conciliacao_investimento_pd IS 'Compara, por organizacao e ano, o P&D autodeclarado (fato_desempenho_organizacao.investimento_p_d) com a soma categorizada (fato_investimento_inovacao, categoria=''p_d''). Divergencia grande pode indicar lancamento incompleto por categoria — nao e um erro de sistema, e uma diferenca esperada entre dois instrumentos de coleta distintos.';
 
 -- 3. Receita de produtos/servicos novos / faturamento total.
 CREATE OR REPLACE VIEW mart.vw_receita_proveniente_inovacao AS
@@ -66,10 +99,19 @@ FROM core.fato_desempenho_organizacao f
 JOIN core.dim_tempo dt ON dt.id_tempo = f.id_tempo;
 COMMENT ON VIEW mart.vw_produtividade_trabalhador IS 'Faturamento por trabalhador (proxy de produtividade), por organizacao e ano.';
 
--- 5. Novas empresas inovadoras no periodo / total de empresas acompanhadas.
--- "Nova empresa inovadora" = organizacao cuja primeira inovacao implementada
--- ocorreu naquele ano.
-CREATE OR REPLACE VIEW mart.vw_taxa_renovacao_empresarial_inovadora AS
+-- 5. Empresas em sua PRIMEIRA inovacao implementada no ano / respondentes elegiveis do ano.
+--
+-- Renomeado de vw_taxa_renovacao_empresarial_inovadora: o nome antigo
+-- sugeria medir renovacao empresarial (entrada de novas empresas/startups,
+-- sobrevivencia), mas na verdade mede algo mais especifico — organizacoes
+-- que inovaram pela primeira vez no periodo. Renovacao empresarial de
+-- verdade (natalidade, mortalidade, sobrevivencia por coorte) tem
+-- estrutura propria em mart.vw_cohort_sobrevivencia_empresarial e
+-- mart.vw_bi_empreendedorismo, a partir de
+-- core.dim_organizacao.data_entrada_ecossistema/data_saida_ecossistema.
+DROP VIEW IF EXISTS mart.vw_taxa_renovacao_empresarial_inovadora;
+
+CREATE OR REPLACE VIEW mart.vw_taxa_primeira_inovacao AS
 WITH primeira_inovacao AS (
     SELECT id_organizacao, min(extract(year FROM data_implementacao))::smallint AS ano_primeira_inovacao
     FROM core.fato_inovacao
@@ -77,24 +119,25 @@ WITH primeira_inovacao AS (
     GROUP BY id_organizacao
 ),
 novas_por_ano AS (
-    SELECT ano_primeira_inovacao AS ano, count(*) AS novas_empresas_inovadoras
-    FROM primeira_inovacao
-    GROUP BY 1
+    SELECT re.ano, count(*) AS empresas_primeira_inovacao
+    FROM primeira_inovacao pi
+    JOIN mart.vw_respondentes_elegiveis re
+        ON re.id_organizacao = pi.id_organizacao AND re.ano = pi.ano_primeira_inovacao
+    GROUP BY re.ano
 ),
-acompanhadas AS (
-    SELECT dt.ano, count(DISTINCT f.id_organizacao) AS total_empresas_acompanhadas
-    FROM core.fato_desempenho_organizacao f
-    JOIN core.dim_tempo dt ON dt.id_tempo = f.id_tempo
-    GROUP BY dt.ano
+respondentes AS (
+    SELECT ano, count(DISTINCT id_organizacao) AS empresas_respondentes
+    FROM mart.vw_respondentes_elegiveis
+    GROUP BY ano
 )
 SELECT
-    a.ano,
-    coalesce(n.novas_empresas_inovadoras, 0) AS novas_empresas_inovadoras,
-    a.total_empresas_acompanhadas,
-    round(100.0 * coalesce(n.novas_empresas_inovadoras, 0) / NULLIF(a.total_empresas_acompanhadas, 0), 2) AS taxa_renovacao_pct
-FROM acompanhadas a
-LEFT JOIN novas_por_ano n ON n.ano = a.ano;
-COMMENT ON VIEW mart.vw_taxa_renovacao_empresarial_inovadora IS 'Percentual de empresas que estrearam como inovadoras no ano, sobre o total acompanhado.';
+    r.ano,
+    coalesce(n.empresas_primeira_inovacao, 0) AS empresas_primeira_inovacao,
+    r.empresas_respondentes,
+    round(100.0 * coalesce(n.empresas_primeira_inovacao, 0) / NULLIF(r.empresas_respondentes, 0), 2) AS taxa_primeira_inovacao_pct
+FROM respondentes r
+LEFT JOIN novas_por_ano n ON n.ano = r.ano;
+COMMENT ON VIEW mart.vw_taxa_primeira_inovacao IS 'Percentual de respondentes elegiveis do ano que implementaram sua PRIMEIRA inovacao naquele ano. Nao e uma medida de renovacao empresarial (entrada/saida de organizacoes) — para isso, ver mart.vw_cohort_sobrevivencia_empresarial.';
 
 -- 6. Projetos concluidos que resultaram em inovacao implementada / projetos concluidos.
 CREATE OR REPLACE VIEW mart.vw_conversao_projetos_inovacao AS
@@ -150,26 +193,47 @@ FROM investimento_ano i
 FULL OUTER JOIN inovacoes_ano n ON n.ano = i.ano;
 COMMENT ON VIEW mart.vw_investimento_por_inovacao IS 'Investimento total em inovacao dividido pelo numero de inovacoes implementadas, por ano.';
 
--- 9. Percentual de organizacoes por tecnologia e nivel de adocao (estado mais recente por org+tecnologia).
+-- 9. Percentual de organizacoes por tecnologia e nivel de adocao, por ciclo de coleta.
+--
+-- Denominador = respondentes elegiveis do MESMO ciclo (mart.vw_respondentes_elegiveis),
+-- nao mais "todas as organizacoes ativas". Isso distingue corretamente:
+--   - organizacao fora do universo pesquisado ou nao-respondente: nao entra
+--     no denominador nem no numerador (nao aparece nesta view);
+--   - organizacao respondente que DECLAROU nao utilizar uma tecnologia:
+--     aparece no numerador com nivel_adocao=0 (e conta no denominador via
+--     vw_respondentes_elegiveis, mesmo sem nenhuma linha "positiva").
+-- Requer core.fato_adocao_tecnologica.id_ciclo preenchido; registros sem
+-- ciclo (dado legado anterior a esta estrutura) ficam de fora — use
+-- mart.fato_adocao_tecnologica para consultar o historico bruto sem esse filtro.
 CREATE OR REPLACE VIEW mart.vw_adocao_tecnologia AS
 WITH estado_atual AS (
     SELECT DISTINCT ON (id_organizacao, id_tecnologia)
-        id_organizacao, id_tecnologia, nivel_adocao
+        id_organizacao, id_tecnologia, id_ciclo, nivel_adocao
     FROM core.fato_adocao_tecnologica
+    WHERE id_ciclo IS NOT NULL
     ORDER BY id_organizacao, id_tecnologia, id_tempo DESC
+),
+respondentes_por_ciclo AS (
+    SELECT id_ciclo, count(DISTINCT id_organizacao) AS total_respondentes
+    FROM mart.vw_respondentes_elegiveis
+    GROUP BY id_ciclo
 )
 SELECT
+    e.id_ciclo,
+    ciclo.nome AS ciclo_coleta,
+    ciclo.ano_referencia AS ano,
     t.id_tecnologia,
     t.nome AS tecnologia,
     e.nivel_adocao,
     count(*) AS qtd_organizacoes,
-    round(
-        100.0 * count(*) / NULLIF((SELECT count(*) FROM core.dim_organizacao WHERE ativa), 0), 2
-    ) AS pct_organizacoes_ativas
+    rp.total_respondentes,
+    round(100.0 * count(*) / NULLIF(rp.total_respondentes, 0), 2) AS pct_organizacoes_respondentes
 FROM estado_atual e
 JOIN core.dim_tecnologia t ON t.id_tecnologia = e.id_tecnologia
-GROUP BY t.id_tecnologia, t.nome, e.nivel_adocao;
-COMMENT ON VIEW mart.vw_adocao_tecnologia IS 'Percentual de organizacoes ativas por tecnologia e nivel de adocao mais recente (0=nao utiliza .. 4=critica).';
+JOIN core.ciclo_coleta ciclo ON ciclo.id_ciclo = e.id_ciclo
+LEFT JOIN respondentes_por_ciclo rp ON rp.id_ciclo = e.id_ciclo
+GROUP BY e.id_ciclo, ciclo.nome, ciclo.ano_referencia, t.id_tecnologia, t.nome, e.nivel_adocao, rp.total_respondentes;
+COMMENT ON VIEW mart.vw_adocao_tecnologia IS 'Percentual de respondentes elegiveis (por ciclo de coleta) em cada nivel de adocao de cada tecnologia (0=declarou nao utilizar .. 4=critica). Organizacao nao-respondente ou fora do universo pesquisado nao aparece aqui.';
 
 -- Apoio: investimento por fonte de recurso (usado tambem na area de P&D/financiamento).
 CREATE OR REPLACE VIEW mart.vw_investimento_por_fonte AS

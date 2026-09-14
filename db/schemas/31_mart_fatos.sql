@@ -49,6 +49,29 @@ SELECT id_inovacao, id_tecnologia, principal
 FROM core.bridge_inovacao_tecnologia;
 COMMENT ON VIEW mart.bridge_inovacao_tecnologia IS 'Relacionamento N:N explicito inovacao-tecnologia. Usar com cautela no Power BI (cria fanout); prefira mart.fato_inovacao para o caso geral.';
 
+CREATE OR REPLACE VIEW mart.bridge_projeto_organizacao AS
+SELECT
+    bpo.id_projeto,
+    bpo.id_organizacao,
+    o.nome AS organizacao_nome,
+    o.tipo_organizacao,
+    bpo.papel,
+    bpo.data_entrada,
+    bpo.data_saida
+FROM core.bridge_projeto_organizacao bpo
+JOIN core.dim_organizacao o ON o.id_organizacao = bpo.id_organizacao;
+COMMENT ON VIEW mart.bridge_projeto_organizacao IS 'Participantes de cada projeto e seus papeis (lider, parceiro, executor, financiador, universidade, ICT, fornecedor...). N:N — use com cautela no Power BI (fanout); mart.dim_projeto.organizacao_lider_nome cobre o caso comum de "quem lidera".';
+
+CREATE OR REPLACE VIEW mart.bridge_projeto_tecnologia AS
+SELECT
+    bpt.id_projeto,
+    bpt.id_tecnologia,
+    t.nome AS tecnologia_nome,
+    bpt.principal
+FROM core.bridge_projeto_tecnologia bpt
+JOIN core.dim_tecnologia t ON t.id_tecnologia = bpt.id_tecnologia;
+COMMENT ON VIEW mart.bridge_projeto_tecnologia IS 'Tecnologias associadas a cada projeto (N:N). Use com cautela no Power BI (fanout); mart.dim_projeto.tecnologia_principal_nome cobre o caso comum de "tecnologia principal".';
+
 CREATE OR REPLACE VIEW mart.fato_conexao_ecossistema AS
 SELECT
     c.id_conexao,

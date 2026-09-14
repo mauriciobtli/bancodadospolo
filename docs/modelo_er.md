@@ -45,6 +45,17 @@ erDiagram
 
     dim_tecnologia ||--o{ fato_adocao_tecnologica : "id_tecnologia"
 
+    dim_projeto ||--o{ bridge_projeto_organizacao : "id_projeto"
+    dim_organizacao ||--o{ bridge_projeto_organizacao : "id_organizacao"
+    dim_projeto ||--o{ bridge_projeto_tecnologia : "id_projeto"
+    dim_tecnologia ||--o{ bridge_projeto_tecnologia : "id_tecnologia"
+
+    ciclo_coleta ||--o{ universo_pesquisado : "id_ciclo"
+    ciclo_coleta ||--o{ cobertura_coleta : "id_ciclo"
+    ciclo_coleta ||--o{ fato_adocao_tecnologica : "id_ciclo"
+    dim_organizacao ||--o{ universo_pesquisado : "id_organizacao"
+    dim_organizacao ||--o{ cobertura_coleta : "id_organizacao"
+
     dim_tempo {
         bigint id_tempo PK
         date data
@@ -77,6 +88,8 @@ erDiagram
         text site
         bool ativa
         date data_entrada_ecossistema
+        date data_saida_ecossistema
+        text motivo_saida
     }
 
     contato_organizacao {
@@ -167,6 +180,42 @@ erDiagram
         bool principal
     }
 
+    bridge_projeto_organizacao {
+        bigint id_projeto FK
+        bigint id_organizacao FK
+        text papel
+        date data_entrada
+        date data_saida
+    }
+
+    bridge_projeto_tecnologia {
+        bigint id_projeto FK
+        bigint id_tecnologia FK
+        bool principal
+    }
+
+    ciclo_coleta {
+        bigint id_ciclo PK
+        text nome
+        smallint ano_referencia
+        text tipo_cobertura
+    }
+
+    universo_pesquisado {
+        bigint id_ciclo FK
+        bigint id_organizacao FK
+        bool elegivel
+        text motivo_inelegibilidade
+    }
+
+    cobertura_coleta {
+        bigint id_ciclo FK
+        bigint id_organizacao FK
+        bool respondeu
+        date data_resposta
+        text instrumento
+    }
+
     fato_conexao_ecossistema {
         bigint id_conexao PK
         bigint id_organizacao_origem FK
@@ -183,6 +232,7 @@ erDiagram
         bigint id_organizacao FK
         bigint id_tecnologia FK
         bigint id_tempo FK
+        bigint id_ciclo FK
         smallint nivel_adocao
     }
 
@@ -230,3 +280,46 @@ erDiagram
 4. **`sustentabilidade` e `automacao`** (secao 6 do briefing) foram
    implementados como booleanos simples em `core.projeto`, por falta de
    definicao de dominio mais rica no requisito original.
+5. **Universo pesquisado e cobertura de coleta** (`core.ciclo_coleta`,
+   `core.universo_pesquisado`, `core.cobertura_coleta`) foram adicionados
+   para resolver uma ambiguidade estrutural: ausencia de dado nao significa
+   "zero". Distinguem organizacao fora do escopo pesquisado, organizacao
+   no escopo mas nao-respondente, e organizacao respondente que declarou
+   explicitamente nao usar uma tecnologia (`fato_adocao_tecnologica.nivel_adocao = 0`).
+   `mart.vw_respondentes_elegiveis` e a base do denominador de
+   `vw_taxa_empresas_inovadoras`, `vw_taxa_primeira_inovacao` e
+   `vw_adocao_tecnologia` — substituindo o uso anterior de "todas as
+   organizacoes ativas" ou de `fato_desempenho_organizacao` como proxy.
+6. **`fato_investimento_inovacao.id_projeto` mudou de `UNIQUE` simples para
+   `UNIQUE NULLS NOT DISTINCT`** (PostgreSQL 16+): como o projeto e opcional,
+   duas linhas com o mesmo grao e ambas sem projeto vinculado sao a mesma
+   medida e devem colidir — com `UNIQUE` padrao, o Postgres trata `NULL <>
+   NULL` e permitiria duplicatas silenciosas.
+7. **`bridge_projeto_organizacao` e `bridge_projeto_tecnologia`** foram
+   adicionadas para representar projetos com multiplos participantes
+   (papeis: lider, parceiro, executor, financiador, universidade, ICT,
+   fornecedor, outro) e multiplas tecnologias. Os campos denormalizados
+   `core.projeto.id_organizacao_lider` e `id_tecnologia_principal` foram
+   mantidos por compatibilidade com as views ja existentes — quando a
+   bridge estiver populada, a linha com `papel='lider'`/`principal=true`
+   deve corresponder ao mesmo valor do campo denormalizado.
+8. **Fonte de verdade para investimento em P&D documentada explicitamente**
+   (comentarios SQL em `core.fato_desempenho_organizacao.investimento_p_d` e
+   `core.fato_investimento_inovacao.categoria`): o KPI de intensidade de
+   P&D usa o valor autodeclarado em `fato_desempenho_organizacao` (mesmo
+   grao do faturamento); o detalhamento por fonte/projeto/tecnologia usa a
+   soma categorizada em `fato_investimento_inovacao`. As duas nunca devem
+   ser somadas entre si — `mart.vw_conciliacao_investimento_pd` existe para
+   investigar divergencias entre elas.
+9. **`id_origem_externa` (nullable) + indice unico parcial** adicionados em
+   `fato_inovacao`, `fato_conexao_ecossistema` e `fato_propriedade_intelectual`
+   — as unicas tabelas fato sem nenhuma chave natural de grao — para
+   permitir upsert idempotente (`INSERT ... ON CONFLICT (id_origem_externa)
+   DO UPDATE`) em reprocessamentos futuros. As demais tabelas fato ja tinham
+   uma `UNIQUE` de grao natural (organizacao+periodo+...) que cumpre esse
+   papel.
+10. **`core.dim_organizacao` ganhou `data_saida_ecossistema` e
+    `motivo_saida`**, complementando `data_entrada_ecossistema` — base
+    minima para `mart.vw_cohort_sobrevivencia_empresarial`, a estrutura
+    preparada (mas ainda nao uma curva de sobrevivencia completa) para
+    medir renovacao empresarial e sobrevivencia por coorte.

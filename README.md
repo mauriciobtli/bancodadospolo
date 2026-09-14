@@ -130,7 +130,7 @@ unitarios (sem banco).
 Antes de commitar, o schema completo foi aplicado (`alembic upgrade head`)
 em um Postgres 16 real, com:
 
-- as 45 views de `mart` testadas com `SELECT ... LIMIT 1` (sem erro, inclusive
+- as 53 views de `mart` testadas com `SELECT ... LIMIT 1` (sem erro, inclusive
   com banco vazio — confirma que `NULLIF` evita divisao por zero em todos os KPIs);
 - a role `powerbi_readonly` testada de fato: consegue `SELECT` em `mart`,
   recebe `permission denied` em `core`/`etl`, e nao consegue escrever em
@@ -197,12 +197,30 @@ dependencia (`gspread`) sem uso imediato.
 - Demais decisoes de modelagem (o que virou FK, o que ficou como enum
   simples) estao documentadas em
   [`docs/modelo_er.md`](docs/modelo_er.md#decisões-de-modelagem-que-se-afastam-do-texto-literal-do-briefing).
+- **Universo pesquisado / cobertura de coleta** (`core.ciclo_coleta`,
+  `core.universo_pesquisado`, `core.cobertura_coleta`): ausencia de dado
+  NAO significa "zero" — distingue organizacao fora do escopo, organizacao
+  que nao respondeu, e organizacao que respondeu e declarou explicitamente
+  nao usar uma tecnologia. `vw_taxa_empresas_inovadoras`, `vw_taxa_primeira_inovacao`
+  e `vw_adocao_tecnologia` usam `mart.vw_respondentes_elegiveis` como
+  denominador — ver [`docs/views_e_kpis.md`](docs/views_e_kpis.md).
+- **Investimento em P&D tem fonte de verdade documentada** para evitar duas
+  metricas divergentes: `fato_desempenho_organizacao.investimento_p_d`
+  (autodeclarado) para o KPI de intensidade, `fato_investimento_inovacao`
+  categorizado para o detalhamento por fonte/tecnologia/setor. Nunca somar
+  as duas — ver `mart.vw_conciliacao_investimento_pd`.
+- **Idempotencia de cargas**: `fato_inovacao`, `fato_conexao_ecossistema` e
+  `fato_propriedade_intelectual` (as unicas tabelas fato sem chave natural
+  de grao) ganharam `id_origem_externa` + indice unico parcial, permitindo
+  `ON CONFLICT (id_origem_externa) DO UPDATE` em reprocessamentos.
 
 ## Pendencias conhecidas / proximos passos
 
-- `core.dim_municipio` tem apenas uma amostra de municipios de SC —
-  confirmar com o Polo Inovale a lista completa da area de atuacao e
-  carregar via IBGE.
+- `core.dim_municipio` ja cobre os 12 municipios oficiais da area de
+  atuacao (AMMOC); os codigos IBGE foram conferidos por multiplas fontes
+  mas vale uma confirmacao final contra a tabela oficial do IBGE antes de
+  producao (ver comentario no topo da secao de municipios em
+  `db/seeds/seed_dimensoes.sql`).
 - Loaders de `investimentos`, `inovacoes`, `conexoes`, `adocao_tecnologica`,
   `desempenho_organizacao`, `talento` e `propriedade_intelectual` ainda nao
   tem uma funcao `processar_<entidade>` implementada (so a tabela `raw.*` e
@@ -210,6 +228,9 @@ dependencia (`gspread`) sem uso imediato.
   `etl/pipeline.py::processar_organizacoes`.
 - Analise de rede avancada (centralidade, deteccao de comunidades) fica
   para uma proxima fase; o modelo relacional ja suporta.
+- `mart.vw_cohort_sobrevivencia_empresarial` e um snapshot do estado atual,
+  nao uma curva de sobrevivencia por periodo — evoluir quando houver
+  snapshots periodicos de status das organizacoes.
 
 ## Documentacao complementar
 
