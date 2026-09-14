@@ -23,7 +23,7 @@ Ponte N:N entre inovacao e tecnologias habilitadoras. principal marca a tecnolog
 ### `core.bridge_projeto_organizacao`
 
 
-Participantes de um projeto e seus papeis (N:N). Permite multiplos parceiros/executores/financiadores por projeto, e multiplos papeis para a mesma organizacao.
+Participantes de um projeto e seus papeis funcionais (N:N). Permite multiplos parceiros/executores/financiadores por projeto, e multiplos papeis para a mesma organizacao. O tipo da organizacao (universidade, ICT, empresa...) vem de dim_organizacao.tipo_organizacao, nao deste campo.
 
 
 | Coluna | Tipo | Nulo? | Descricao |
@@ -40,7 +40,7 @@ Participantes de um projeto e seus papeis (N:N). Permite multiplos parceiros/exe
 ### `core.bridge_projeto_tecnologia`
 
 
-Tecnologias associadas a um projeto (N:N). principal marca a tecnologia mais relevante (deve corresponder a core.projeto.id_tecnologia_principal quando preenchida).
+Tecnologias associadas a um projeto (N:N). principal marca a tecnologia mais relevante; mantida em sincronia com core.projeto.id_tecnologia_principal pelos triggers abaixo.
 
 
 | Coluna | Tipo | Nulo? | Descricao |
@@ -74,7 +74,7 @@ Uma rodada de coleta/pesquisa (ex.: "Pesquisa Polo Inovale 2024"). Base temporal
 ### `core.cobertura_coleta`
 
 
-Registra, por organizacao e ciclo, se houve resposta efetiva. Junto com universo_pesquisado, forma a base de "respondentes elegiveis" usada como denominador dos KPIs de cobertura (ver mart.vw_respondentes_elegiveis).
+Registra, por organizacao e ciclo, se houve resposta efetiva. So pode existir cobertura para um par (id_ciclo, id_organizacao) que ja esteja em universo_pesquisado (FK composta). Junto com universo_pesquisado, forma a base de "respondentes elegiveis" usada como denominador dos KPIs de cobertura (ver mart.vw_respondentes_elegiveis).
 
 
 | Coluna | Tipo | Nulo? | Descricao |
@@ -458,7 +458,7 @@ Projetos de inovacao/P&D. valor_total e orcado/planejado; investimento realizado
 | `id_projeto` | bigint | nao |  |
 | `nome` | text | nao |  |
 | `descricao` | text | sim |  |
-| `id_organizacao_lider` | bigint | sim |  |
+| `id_organizacao_lider` | bigint | sim | Fonte de verdade de quem lidera o projeto. Triggers em 23_core_bridges.sql mantem core.bridge_projeto_organizacao (papel='lider') sincronizada automaticamente com este campo, e bloqueiam edicao direta da bridge que divirja dele. |
 | `data_inicio` | date | sim |  |
 | `data_fim_prevista` | date | sim |  |
 | `data_fim_real` | date | sim |  |
@@ -466,7 +466,7 @@ Projetos de inovacao/P&D. valor_total e orcado/planejado; investimento realizado
 | `valor_total` | numeric | sim |  |
 | `id_fonte_principal` | bigint | sim |  |
 | `id_setor` | bigint | sim |  |
-| `id_tecnologia_principal` | bigint | sim |  |
+| `id_tecnologia_principal` | bigint | sim | Fonte de verdade da tecnologia principal do projeto. Triggers em 23_core_bridges.sql mantem core.bridge_projeto_tecnologia.principal sincronizada automaticamente com este campo, e bloqueiam edicao direta da bridge que divirja dele. |
 | `id_problema_alvo` | bigint | sim |  |
 | `sustentabilidade` | boolean | sim | Classificacao de direcionalidade: o projeto tem foco em sustentabilidade (booleano simples nesta primeira versao). |
 | `automacao` | boolean | sim | Classificacao de direcionalidade: o projeto envolve automacao (booleano simples nesta primeira versao). |

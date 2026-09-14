@@ -207,11 +207,15 @@ COMMENT ON VIEW mart.vw_investimento_por_inovacao IS 'Investimento total em inov
 -- mart.fato_adocao_tecnologica para consultar o historico bruto sem esse filtro.
 CREATE OR REPLACE VIEW mart.vw_adocao_tecnologia AS
 WITH estado_atual AS (
-    SELECT DISTINCT ON (id_organizacao, id_tecnologia)
+    -- Particionado por id_ciclo+organizacao+tecnologia (nao apenas
+    -- organizacao+tecnologia): cada ciclo mantem sua propria serie
+    -- historica. Um DISTINCT ON so por organizacao+tecnologia colapsaria
+    -- ciclos anteriores, escondendo-os da view.
+    SELECT DISTINCT ON (id_ciclo, id_organizacao, id_tecnologia)
         id_organizacao, id_tecnologia, id_ciclo, nivel_adocao
     FROM core.fato_adocao_tecnologica
     WHERE id_ciclo IS NOT NULL
-    ORDER BY id_organizacao, id_tecnologia, id_tempo DESC
+    ORDER BY id_ciclo, id_organizacao, id_tecnologia, id_tempo DESC
 ),
 respondentes_por_ciclo AS (
     SELECT id_ciclo, count(DISTINCT id_organizacao) AS total_respondentes

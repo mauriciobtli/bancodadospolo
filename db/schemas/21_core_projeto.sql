@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS core.projeto (
 COMMENT ON TABLE core.projeto IS 'Projetos de inovacao/P&D. valor_total e orcado/planejado; investimento realizado vem de core.fato_investimento_inovacao.';
 COMMENT ON COLUMN core.projeto.sustentabilidade IS 'Classificacao de direcionalidade: o projeto tem foco em sustentabilidade (booleano simples nesta primeira versao).';
 COMMENT ON COLUMN core.projeto.automacao IS 'Classificacao de direcionalidade: o projeto envolve automacao (booleano simples nesta primeira versao).';
+COMMENT ON COLUMN core.projeto.id_organizacao_lider IS 'Fonte de verdade de quem lidera o projeto. Triggers em 23_core_bridges.sql mantem core.bridge_projeto_organizacao (papel=''lider'') sincronizada automaticamente com este campo, e bloqueiam edicao direta da bridge que divirja dele.';
+COMMENT ON COLUMN core.projeto.id_tecnologia_principal IS 'Fonte de verdade da tecnologia principal do projeto. Triggers em 23_core_bridges.sql mantem core.bridge_projeto_tecnologia.principal sincronizada automaticamente com este campo, e bloqueiam edicao direta da bridge que divirja dele.';
 
 CREATE OR REPLACE TRIGGER trg_projeto_atualizado_em
     BEFORE UPDATE ON core.projeto

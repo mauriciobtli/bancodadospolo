@@ -188,19 +188,19 @@ def test_bridge_projeto_organizacao_rejeita_papel_fora_do_dominio(db_conn):
 
 
 def test_bridge_projeto_tecnologia_rejeita_mais_de_uma_principal(db_conn):
-    id_projeto = db_conn.execute(
-        text("INSERT INTO core.projeto (nome, fonte_dado) VALUES ('Projeto Teste', 'teste') RETURNING id_projeto")
-    ).scalar_one()
+    """core.projeto.id_tecnologia_principal e a fonte de verdade (ver
+    tests/db/test_bridge_projeto.py para a sincronizacao completa); aqui so
+    confirmamos que a bridge nunca acaba com duas linhas principal=true
+    para o mesmo projeto, seja pelo guard (caminho normal) ou pelo indice
+    unico parcial uq_bridge_projeto_tec_principal (defesa em profundidade)."""
     tecnologias = db_conn.execute(text("SELECT id_tecnologia FROM core.dim_tecnologia LIMIT 2")).scalars().all()
-    db_conn.execute(
+    id_projeto = db_conn.execute(
         text(
-            """
-            INSERT INTO core.bridge_projeto_tecnologia (id_projeto, id_tecnologia, principal)
-            VALUES (:id_projeto, :id_tecnologia, true)
-            """
+            "INSERT INTO core.projeto (nome, id_tecnologia_principal, fonte_dado) "
+            "VALUES ('Projeto Teste', :id_tecnologia, 'teste') RETURNING id_projeto"
         ),
-        {"id_projeto": id_projeto, "id_tecnologia": tecnologias[0]},
-    )
+        {"id_tecnologia": tecnologias[0]},
+    ).scalar_one()
     with pytest.raises(IntegrityError):
         with db_conn.begin_nested():
             db_conn.execute(
@@ -211,6 +211,29 @@ def test_bridge_projeto_tecnologia_rejeita_mais_de_uma_principal(db_conn):
                     """
                 ),
                 {"id_projeto": id_projeto, "id_tecnologia": tecnologias[1]},
+            )
+
+
+def test_cobertura_coleta_rejeita_organizacao_fora_do_universo_pesquisado(db_conn):
+    """FK composta (id_ciclo, id_organizacao) -> universo_pesquisado: nao e
+    possivel registrar cobertura para quem nunca entrou no escopo da pesquisa."""
+    id_org = _criar_organizacao(db_conn, nome="Fora do Universo")
+    id_ciclo = db_conn.execute(
+        text(
+            "INSERT INTO core.ciclo_coleta (nome, ano_referencia, fonte_dado) "
+            "VALUES ('Ciclo Sem Universo', 2025, 'teste') RETURNING id_ciclo"
+        )
+    ).scalar_one()
+    with pytest.raises(IntegrityError):
+        with db_conn.begin_nested():
+            db_conn.execute(
+                text(
+                    """
+                    INSERT INTO core.cobertura_coleta (id_ciclo, id_organizacao, respondeu, fonte_dado)
+                    VALUES (:id_ciclo, :id_organizacao, true, 'teste')
+                    """
+                ),
+                {"id_ciclo": id_ciclo, "id_organizacao": id_org},
             )
 
 

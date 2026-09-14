@@ -62,9 +62,16 @@ CREATE OR REPLACE TRIGGER trg_universo_pesquisado_atualizado_em
 -- nao-respondente de organizacao fora do escopo (sem linha em
 -- universo_pesquisado) ou de organizacao que respondeu e declarou "nao
 -- utiliza" (fato_adocao_tecnologica.nivel_adocao = 0).
+--
+-- A FK composta abaixo (em vez de duas FKs simples para ciclo_coleta e
+-- dim_organizacao) garante em nivel de banco que so existe cobertura para
+-- quem esta no universo pesquisado do MESMO ciclo — nao e possivel
+-- registrar resposta de uma organizacao que nunca entrou no escopo da
+-- pesquisa. id_organizacao continua validado transitivamente, pois
+-- universo_pesquisado.id_organizacao ja referencia dim_organizacao.
 CREATE TABLE IF NOT EXISTS core.cobertura_coleta (
-    id_ciclo        bigint NOT NULL REFERENCES core.ciclo_coleta (id_ciclo) ON DELETE CASCADE,
-    id_organizacao  bigint NOT NULL REFERENCES core.dim_organizacao (id_organizacao),
+    id_ciclo        bigint NOT NULL,
+    id_organizacao  bigint NOT NULL,
     respondeu       boolean NOT NULL,
     data_resposta   date,
     instrumento     text,
@@ -72,9 +79,11 @@ CREATE TABLE IF NOT EXISTS core.cobertura_coleta (
     fonte_dado      text NOT NULL,
     criado_em       timestamptz NOT NULL DEFAULT now(),
     atualizado_em   timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (id_ciclo, id_organizacao)
+    PRIMARY KEY (id_ciclo, id_organizacao),
+    CONSTRAINT fk_cobertura_coleta_universo_pesquisado FOREIGN KEY (id_ciclo, id_organizacao)
+        REFERENCES core.universo_pesquisado (id_ciclo, id_organizacao) ON DELETE CASCADE
 );
-COMMENT ON TABLE core.cobertura_coleta IS 'Registra, por organizacao e ciclo, se houve resposta efetiva. Junto com universo_pesquisado, forma a base de "respondentes elegiveis" usada como denominador dos KPIs de cobertura (ver mart.vw_respondentes_elegiveis).';
+COMMENT ON TABLE core.cobertura_coleta IS 'Registra, por organizacao e ciclo, se houve resposta efetiva. So pode existir cobertura para um par (id_ciclo, id_organizacao) que ja esteja em universo_pesquisado (FK composta). Junto com universo_pesquisado, forma a base de "respondentes elegiveis" usada como denominador dos KPIs de cobertura (ver mart.vw_respondentes_elegiveis).';
 COMMENT ON COLUMN core.cobertura_coleta.instrumento IS 'Como a resposta foi coletada: formulario, entrevista, planilha, etc.';
 
 CREATE INDEX IF NOT EXISTS ix_cobertura_coleta_organizacao ON core.cobertura_coleta (id_organizacao);

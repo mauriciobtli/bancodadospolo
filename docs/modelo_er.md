@@ -51,10 +51,10 @@ erDiagram
     dim_tecnologia ||--o{ bridge_projeto_tecnologia : "id_tecnologia"
 
     ciclo_coleta ||--o{ universo_pesquisado : "id_ciclo"
-    ciclo_coleta ||--o{ cobertura_coleta : "id_ciclo"
     ciclo_coleta ||--o{ fato_adocao_tecnologica : "id_ciclo"
+    ciclo_coleta ||--o{ cobertura_coleta : "id_ciclo (via universo_pesquisado)"
     dim_organizacao ||--o{ universo_pesquisado : "id_organizacao"
-    dim_organizacao ||--o{ cobertura_coleta : "id_organizacao"
+    universo_pesquisado ||--o| cobertura_coleta : "(id_ciclo, id_organizacao) FK composta"
 
     dim_tempo {
         bigint id_tempo PK
@@ -297,12 +297,24 @@ erDiagram
    NULL` e permitiria duplicatas silenciosas.
 7. **`bridge_projeto_organizacao` e `bridge_projeto_tecnologia`** foram
    adicionadas para representar projetos com multiplos participantes
-   (papeis: lider, parceiro, executor, financiador, universidade, ICT,
-   fornecedor, outro) e multiplas tecnologias. Os campos denormalizados
-   `core.projeto.id_organizacao_lider` e `id_tecnologia_principal` foram
-   mantidos por compatibilidade com as views ja existentes — quando a
-   bridge estiver populada, a linha com `papel='lider'`/`principal=true`
-   deve corresponder ao mesmo valor do campo denormalizado.
+   (papeis funcionais: `lider`, `parceiro`, `executor`, `financiador`,
+   `fornecedor`, `beneficiario`, `outro` — **nao** `universidade`/`ict`,
+   que sao tipos de organizacao, nao papeis de projeto; o tipo vem de
+   `dim_organizacao.tipo_organizacao` via join) e multiplas tecnologias.
+   `core.projeto.id_organizacao_lider`/`id_tecnologia_principal`
+   continuam sendo os campos denormalizados usados pelas views, mas agora
+   sao a **fonte de verdade enforced por trigger**, nao apenas uma
+   convencao documentada: `core.fn_projeto_sync_bridge_lider()` e
+   `core.fn_projeto_sync_bridge_tecnologia_principal()` propagam
+   automaticamente qualquer INSERT/UPDATE de `core.projeto` para a
+   bridge; `core.fn_guard_bridge_projeto_lider()` e
+   `core.fn_guard_bridge_projeto_tecnologia_principal()` rejeitam
+   (`RAISE EXCEPTION`) qualquer INSERT/UPDATE/DELETE feito diretamente na
+   bridge que divirja do valor atual em `core.projeto`. Excluir o projeto
+   inteiro continua funcionando normalmente (a cascata do `DELETE`
+   acontece antes de o guard ter uma linha de `core.projeto` para
+   comparar). Ver `db/schemas/23_core_bridges.sql` e
+   `tests/db/test_bridge_projeto.py`.
 8. **Fonte de verdade para investimento em P&D documentada explicitamente**
    (comentarios SQL em `core.fato_desempenho_organizacao.investimento_p_d` e
    `core.fato_investimento_inovacao.categoria`): o KPI de intensidade de
@@ -323,3 +335,17 @@ erDiagram
     minima para `mart.vw_cohort_sobrevivencia_empresarial`, a estrutura
     preparada (mas ainda nao uma curva de sobrevivencia completa) para
     medir renovacao empresarial e sobrevivencia por coorte.
+11. **`mart.vw_adocao_tecnologia` particiona o "estado mais recente" por
+    `id_ciclo + id_organizacao + id_tecnologia`**, nao apenas
+    `id_organizacao + id_tecnologia`. A versao anterior usava `DISTINCT ON
+    (id_organizacao, id_tecnologia)` ordenado por `id_tempo DESC`, o que
+    colapsava todos os ciclos em um so — mantendo visivel apenas a medicao
+    mais recente e escondendo ciclos anteriores da serie historica. Ver
+    `tests/mart/test_adocao_tecnologica.py`.
+12. **`core.cobertura_coleta` referencia `core.universo_pesquisado` por FK
+    composta `(id_ciclo, id_organizacao)`** em vez de duas FKs simples
+    (`id_ciclo` -> `ciclo_coleta`, `id_organizacao` -> `dim_organizacao`).
+    Isso torna estruturalmente impossivel registrar cobertura de uma
+    organizacao que nunca entrou no universo pesquisado daquele ciclo —
+    antes disso era apenas uma expectativa de uso, nao uma garantia do
+    banco.

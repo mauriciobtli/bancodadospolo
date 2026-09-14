@@ -135,10 +135,17 @@ snapshots periódicos de status, que ainda não existem).
   `mart.bridge_inovacao_tecnologia`, mas isso cria fanout — evite marcar
   como relacionamento ativo por padrao no Power BI.
 - O mesmo vale para `mart.bridge_projeto_organizacao` (participantes do
-  projeto com papel) e `mart.bridge_projeto_tecnologia` (tecnologias do
+  projeto com papel: `lider`, `parceiro`, `executor`, `financiador`,
+  `fornecedor`, `beneficiario`, `outro` — o tipo da organizacao,
+  universidade/ICT/empresa/etc., vem de `dim_organizacao.tipo_organizacao`,
+  nao do papel) e `mart.bridge_projeto_tecnologia` (tecnologias do
   projeto): use para analises especificas de multi-participante/
   multi-tecnologia, mas prefira `mart.dim_projeto.organizacao_lider_nome`
   e `tecnologia_principal_nome` para o caso comum, evitando fanout.
+  `core.projeto.id_organizacao_lider`/`id_tecnologia_principal` sao a
+  fonte de verdade — triggers no banco mantem as duas bridges sincronizadas
+  automaticamente e rejeitam edicao direta divergente (ver
+  `db/schemas/23_core_bridges.sql`).
 - Monte as relacoes de estrela a partir de `mart.dim_tempo.id_tempo`,
   `mart.dim_organizacao.id_organizacao`, `mart.dim_municipio.id_municipio`,
   `mart.dim_setor.id_setor`, `mart.dim_tecnologia.id_tecnologia` etc.
