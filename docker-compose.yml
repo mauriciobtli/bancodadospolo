@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: polo_inovale_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POLO_DB_NAME:-polo_inovale}
+      POSTGRES_USER: ${POLO_DB_USER:-polo_admin}
+      POSTGRES_PASSWORD: ${POLO_DB_PASSWORD:?defina POLO_DB_PASSWORD no .env}
+    ports:
+      - "${POLO_DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POLO_DB_USER:-polo_admin} -d ${POLO_DB_NAME:-polo_inovale}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

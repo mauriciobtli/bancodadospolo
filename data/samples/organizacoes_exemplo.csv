@@ -1,0 +1,6 @@
+nome,nome_fantasia,cnpj,tipo_organizacao,municipio,uf,setor_economico,porte,ano_fundacao,site,ativa,data_entrada_ecossistema,nome_contato,email_contato,telefone_contato,cargo_contato
+Alfa Tecnologia Ltda,Alfa Tech,11.122.233/0001-83,empresa,Florianopolis,SC,tecnologia_informacao,pequena,2015,https://alfatech.example.com,sim,15/03/2022,Maria Silva,maria@alfatech.example.com,(48) 99999-0001,Diretora
+Beta Startup,Beta,22.233.344/0001-83,startup,Florianopolis,SC,tecnologia_informacao,micro,2020,https://beta.example.com,sim,01/06/2023,Joao Souza,joao@beta.example.com,(48) 99999-0002,Fundador
+Instituto Gama de Pesquisa,,33.344.455/0001-83,ict,Chapeco,SC,agroindustria,media,1998,https://gama.example.com,sim,10/01/2021,,,,
+Organizacao CNPJ Invalido,,00.000.000/0000-00,empresa,Joinville,SC,industria_transformacao,micro,2019,,sim,,,,,
+Organizacao Sem Tipo Valido,,,tipo_inexistente,Blumenau,SC,servicos,micro,2021,,sim,,,,,

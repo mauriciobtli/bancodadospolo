@@ -1,0 +1,29 @@
+[project]
+name = "polo-inovale-dw"
+version = "0.1.0"
+description = "Data Warehouse do Observatorio de Inovacao do Polo Inovale"
+requires-python = ">=3.11"
+dependencies = [
+    "sqlalchemy>=2.0,<3.0",
+    "alembic>=1.13,<2.0",
+    "psycopg[binary]>=3.1,<4.0",
+    "pandas>=2.2,<3.0",
+    "openpyxl>=3.1,<4.0",
+    "python-dotenv>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "pytest-postgresql>=6.0,<7.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["etl*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

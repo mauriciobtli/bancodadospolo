@@ -1,0 +1,42 @@
+### Segredos e configuração local — nunca versionar ###
+.env
+*.env
+!.env.example
+*.pem
+*.key
+credentials.json
+service-account*.json
+
+### Python ###
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/
+
+### Banco de dados ###
+*.sqlite
+*.sqlite3
+pgdata/
+db_backups/*.dump
+db_backups/*.sql
+!db_backups/.gitkeep
+
+### Dados sensíveis / cargas locais ###
+etl/quarantine/*
+!etl/quarantine/.gitkeep
+data/raw_uploads/
+data/*.csv
+data/*.xlsx
+!data/samples/*.csv
+
+### Sistema operacional / editores ###
+.DS_Store
+.idea/
+.vscode/
+*.log
