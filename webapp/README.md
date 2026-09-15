@@ -1,0 +1,157 @@
+# Admin web do Polo Inovale
+
+Camada administrativa (Django + Django Admin) para cadastrar, consultar,
+editar e importar dados no Data Warehouse do Polo Inovale. Não é uma
+aplicação Django "cheia" — é o Django Admin customizado, conectado
+diretamente ao schema `core` do banco já existente (ver `../README.md` e
+`../docs/` para o modelo de dados).
+
+## Princípios
+
+- **O Postgres continua sendo a fonte de verdade das regras de negócio.**
+  Este app não reimplementa CHECK constraints, triggers de sincronização
+  (líder/tecnologia principal do projeto) nem a lógica de
+  validação/deduplicação do ETL — ele reaproveita o pacote `etl/` já
+  existente (mesmo código, mesmos testes) e deixa o banco rejeitar o que
+  for inválido, traduzindo a mensagem de erro para o usuário quando isso
+  acontece.
+- **`core` é a camada operacional; `mart` continua exclusiva do Power BI.**
+  Este app lê/escreve em `core` (e lê `etl` para acompanhar importações) —
+  nunca toca em `mart`.
+- **Simplicidade de uso, não aparência.** Tema padrão do Django Admin, só
+  com marca/idioma ajustados.
+
+## Arquitetura
+
+```
+Funcionário → Django Admin (webapp/, role django_app) → Postgres (core: leitura/escrita, etl: leitura)
+Power BI    → mart (role powerbi_readonly, inalterado)
+```
+
+- Os modelos que representam tabelas de `core.*`/`etl.*` são
+  **`managed = False`**: o Django só os descreve para gerar
+  formulários/consultas — quem cria/altera essas tabelas continua sendo o
+  Alembic (`../db/migrations`).
+- O Django tem seu **próprio schema Postgres (`app`)** para as tabelas
+  internas (usuários, sessões, grupos, permissões, log do admin) — criado
+  pela migration `0005_django_app_role` do Alembic
+  (`../db/roles/django_app.sql`). `manage.py migrate` nunca toca em
+  `raw`/`core`/`mart`/`etl`.
+- Role dedicada **`django_app`**: leitura/escrita em `core`, leitura em
+  `etl`, sem acesso a `raw`/`mart`. A importação de arquivos (que grava em
+  `raw`/`etl`) roda com a role de administração do ETL
+  (`etl.db.get_engine()`, mesmo caminho de código do ETL de linha de
+  comando), não com `django_app`.
+
+## Perfis de usuário (grupos Django)
+
+Criados automaticamente por `manage.py migrate` (migration
+`core_admin.0001_initial`):
+
+| Grupo | Acesso |
+|---|---|
+| **Cadastro** | CRUD completo em tudo, exceto contatos das organizações |
+| **Contatos** | Acesso a `ContatoOrganizacao` (dado pessoal/LGPD) — some para quem não está neste grupo, inclusive a aba inline em Organização |
+| **Importação** | Acesso à tela de importação CSV/XLSX (permissão nomeada à parte, por ser uma ação de maior impacto) |
+| **Leitura** | Só visualização, em tudo exceto contatos |
+
+Superusuários (`createsuperuser`) têm acesso total, incluindo gestão de
+usuários/grupos.
+
+## Instalação
+
+```bash
+cd ..  # raiz do repositório
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,webapp]"
+```
+
+### Banco: role e schema do Django
+
+```bash
+alembic upgrade head   # aplica, entre outras, a migration 0005 (schema app + role django_app)
+psql -h "$POLO_DB_HOST" -U "$POLO_DB_USER" -d "$POLO_DB_NAME" \
+  -c "ALTER ROLE django_app WITH PASSWORD '<gere uma senha forte>';"
+```
+
+### Variáveis de ambiente
+
+Acrescente ao `.env` da raiz do repositório (ver `.env.example`):
+`DJANGO_DB_USER`, `DJANGO_DB_PASSWORD`, `DJANGO_SECRET_KEY`,
+`DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`.
+
+Gere a `SECRET_KEY`:
+
+```bash
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+```
+
+### Migrations do Django (só tabelas internas: usuários, sessões, grupos)
+
+```bash
+python webapp/manage.py migrate
+python webapp/manage.py createsuperuser
+```
+
+### Rodar localmente
+
+```bash
+python webapp/manage.py runserver
+```
+
+Acesse `http://127.0.0.1:8000/` (o admin fica na raiz do site, não em
+`/admin/`) e faça login com o superusuário criado.
+
+## Telas
+
+- **Organizações** — cadastro, busca por nome/CNPJ/município/setor, aba
+  "Contatos" (restrita).
+- **Projetos** — cadastro com abas "Participantes" (papel funcional —
+  "líder" não é uma opção aqui, é definido pelo campo "Organização líder"
+  do projeto) e "Tecnologias do projeto" (idem para "principal").
+- **Inovação, Financeiro, Ecossistema, Adoção Tecnológica, Desempenho e
+  Talentos, Propriedade Intelectual** — CRUD padrão. Os fatos anuais
+  (desempenho, talentos, investimento, adoção tecnológica) mostram um
+  campo simples "Ano de referência" em vez do identificador técnico de
+  data — internamente resolvido para 31/12 daquele ano, a mesma convenção
+  já usada no DW.
+- **Pesquisa (Ciclos de Coleta)** — ciclo com abas "Universo pesquisado" e
+  "Cobertura de coleta" (não têm tela própria: PK composta no banco não é
+  suportada pelo registro padrão do Django Admin — geridas só como aba do
+  ciclo). Ação em massa "Adicionar organizações ativas da área de atuação
+  ao universo pesquisado".
+- **Importação** — upload de CSV/XLSX de organizações, reaproveitando
+  `etl/loaders` e `etl/pipeline` (mesmo código testado do ETL de linha de
+  comando). Mostra o resultado (lidos/inseridos/atualizados/rejeitados) e
+  linka para o histórico de execuções e a quarentena. Novas entidades
+  seguem o mesmo padrão (`etl/pipeline.py::processar_<entidade>`).
+
+## O que foi validado manualmente (Postgres real, sessão de desenvolvimento)
+
+- Login, branding, agrupamento de menu por tema.
+- CRUD de organização com validação de CNPJ e aba de contato.
+- Importação real do CSV de exemplo pela tela web (3 inseridas, 2 rejeitadas
+  e visíveis na quarentena).
+- Isolamento de PII: usuário só no grupo "Cadastro" não vê `ContatoOrganizacao`
+  em lugar nenhum (formulário, menu, nem acesso direto por URL — 403).
+- Campo "Ano de referência" gravando corretamente em `dim_tempo` (31/12).
+- Erro de banco (`UNIQUE`/`CHECK`/trigger de guarda) mostrado como mensagem
+  amigável, sem página 500 — testado com uma duplicidade real de
+  `fato_desempenho_organizacao`.
+- Criação de projeto com líder pela tela web sincronizando
+  `bridge_projeto_organizacao` automaticamente (trigger do banco), e o
+  papel "líder" corretamente ausente das opções da aba de participantes.
+
+## Pendências conhecidas
+
+- Testes automatizados do Django (`pytest-django`/`manage.py test`) não
+  foram adicionados nesta primeira versão: o test runner padrão do Django
+  precisa de privilégio `CREATEDB`, que a role `django_app` propositalmente
+  não tem (princípio de privilégio mínimo). Alternativas para uma próxima
+  fase: role de teste dedicada com `CREATEDB`, ou testes no mesmo padrão
+  dos já existentes em `../tests/` (conexão direta + rollback).
+- Import CSV/XLSX implementado só para organizações; demais entidades
+  seguem o padrão já estabelecido em `etl/pipeline.py`.
+- `mart.vw_cohort_sobrevivencia_empresarial` e outras views analíticas
+  continuam exclusivas do Power BI — não há tela de relatório no admin web
+  (fora de escopo: o admin é para cadastro/operação, não para análise).

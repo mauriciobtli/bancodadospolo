@@ -15,7 +15,12 @@ raw   -> pouso de dados brutos (CSV/XLSX/Sheets), tipagem fraca (texto)
 core  -> dados limpos, deduplicados, normalizados, com integridade referencial
 mart  -> modelo dimensional e views/KPIs consumidos pelo Power BI
 etl   -> controle de carga (etl_execucao) e quarentena de registros invalidos
+app   -> tabelas internas do admin web (Django) — usuarios, sessoes, grupos
 ```
+
+`app` é gerido só por `manage.py migrate` (Django), nunca pelo Alembic — é
+infraestrutura para o consumidor "admin web" (`webapp/`), não faz parte do
+modelo do DW em si. Ver [`webapp/README.md`](webapp/README.md).
 
 Toda logica de negocio relevante (KPIs, agregados) vive como SQL view no
 banco — o Power BI so consome `mart`, nunca recalcula metricas com lógica
@@ -43,6 +48,7 @@ tests/
   mart/   # KPIs (divisao por zero)
 docs/     # dicionario de dados, ER, views/KPIs, backup/restore
 data/samples/  # CSV de exemplo (sem dados reais) para testar o loader
+webapp/   # admin web (Django) — cadastro/consulta/edicao/importacao, ver webapp/README.md
 ```
 
 ## Seguranca de dados
@@ -56,7 +62,15 @@ data/samples/  # CSV de exemplo (sem dados reais) para testar o loader
 - **Dados pessoais isolados**: `core.contato_organizacao` (nome de contato,
   e-mail, telefone) fica fora do schema `mart` e fora do grant da role de
   leitura. `dim_organizacao`/`mart.dim_organizacao` tem apenas dados
-  publicos/institucionais (CNPJ, nome, site).
+  publicos/institucionais (CNPJ, nome, site). No admin web (`webapp/`),
+  o acesso a `contato_organizacao` fica restrito ao grupo Django
+  "Contatos" — nenhum outro grupo (nem "Leitura") enxerga esse dado, em
+  nenhuma tela (verificado manualmente: 403 em acesso direto por URL).
+- **Role dedicada para o admin web** (`django_app`, ver
+  `db/roles/django_app.sql`): leitura/escrita em `core`, leitura em `etl`,
+  sem acesso a `raw`/`mart`. A gravacao em `raw`/`etl` durante uma
+  importacao pela tela web usa a role de administracao do ETL, nao
+  `django_app` — ver [`webapp/README.md`](webapp/README.md).
 - **Dumps de backup nunca sao commitados** (`db_backups/*.dump` no
   `.gitignore`) — contem dados pessoais. Ver
   [`docs/backup_restore.md`](docs/backup_restore.md).

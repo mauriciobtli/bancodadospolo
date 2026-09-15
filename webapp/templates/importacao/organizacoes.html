@@ -1,0 +1,29 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <h1>{{ titulo }}</h1>
+
+  <p>
+    Envie um arquivo <strong>.csv</strong> ou <strong>.xlsx</strong> com as organizações a
+    cadastrar/atualizar. Registros com CNPJ inválido, tipo fora do domínio ou outro problema
+    de validação não são descartados: ficam em <a href="{% url 'polo_admin:core_admin_quarentenaregistro_changelist' %}">Importação → Quarentena</a>
+    para revisão.
+  </p>
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <input type="submit" value="Importar" class="default">
+  </form>
+
+  {% if resultado %}
+    <h2>Resultado da execução #{{ resultado.id_execucao }}</h2>
+    <table>
+      <tr><th>Registros lidos</th><td>{{ resultado.lidos }}</td></tr>
+      <tr><th>Inseridos</th><td>{{ resultado.inseridos }}</td></tr>
+      <tr><th>Atualizados</th><td>{{ resultado.atualizados }}</td></tr>
+      <tr><th>Rejeitados</th><td>{{ resultado.rejeitados }}</td></tr>
+    </table>
+    <p><a href="{% url 'polo_admin:core_admin_etlexecucao_changelist' %}">Ver histórico completo de execuções</a></p>
+  {% endif %}
+{% endblock %}

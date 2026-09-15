@@ -34,6 +34,18 @@ TIPO_PI = {"patente", "marca", "registro_software", "desenho_industrial", "culti
 
 STATUS_PI = {"depositado", "em_analise", "concedido", "indeferido", "expirado"}
 
+REGIAO = {"norte", "nordeste", "centro_oeste", "sudeste", "sul"}
+
+MOTIVO_SAIDA_ORGANIZACAO = {
+    "encerramento", "fusao_aquisicao", "saiu_area_atuacao", "inatividade", "outro",
+}
+
+PAPEL_PROJETO = {
+    "lider", "parceiro", "executor", "financiador", "fornecedor", "beneficiario", "outro",
+}
+
+TIPO_COBERTURA_CICLO = {"censitario", "amostral"}
+
 
 def validar_dominio(valor: str | None, dominio: set[str], obrigatorio: bool = True) -> bool:
     """Retorna True se o valor (normalizado) pertence ao dominio permitido."""

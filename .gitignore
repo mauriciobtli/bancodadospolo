@@ -35,6 +35,10 @@ data/*.csv
 data/*.xlsx
 !data/samples/*.csv
 
+### Admin web (Django) ###
+webapp/staticfiles/
+webapp/media/
+
 ### Sistema operacional / editores ###
 .DS_Store
 .idea/

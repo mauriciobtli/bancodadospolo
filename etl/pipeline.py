@@ -17,6 +17,7 @@ from sqlalchemy.engine import Connection
 
 from etl.execucao import RegistroExecucao
 from etl.loaders.csv_loader import carregar_csv_para_raw
+from etl.loaders.xlsx_loader import carregar_xlsx_para_raw
 from etl.transforms.datas import parse_data
 from etl.transforms.dedup_organizacao import buscar_organizacao_existente
 from etl.transforms.normalizacao import (
@@ -49,6 +50,16 @@ MAPEAMENTO_COLUNAS_ORGANIZACOES = {
 
 def carregar_organizacoes_csv(conn: Connection, caminho: Path) -> RegistroExecucao:
     return carregar_csv_para_raw(
+        conn,
+        caminho,
+        tabela_raw="organizacoes",
+        entidade_alvo="core.dim_organizacao",
+        mapeamento_colunas=MAPEAMENTO_COLUNAS_ORGANIZACOES,
+    )
+
+
+def carregar_organizacoes_xlsx(conn: Connection, caminho: Path) -> RegistroExecucao:
+    return carregar_xlsx_para_raw(
         conn,
         caminho,
         tabela_raw="organizacoes",
