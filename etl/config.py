@@ -55,12 +55,35 @@ def get_readonly_settings() -> DatabaseSettings:
     )
 
 
-def build_database_url(readonly: bool = False) -> str:
-    settings = get_readonly_settings() if readonly else get_admin_settings()
+def get_web_import_settings() -> DatabaseSettings:
+    """Role dedicada e minima (db/roles/web_import.sql) para a importacao
+    disparada pela tela web — nunca a role de administracao (POLO_DB_USER),
+    que so deve rodar em processos administrativos de confianca (Alembic,
+    ETL de linha de comando), nunca dentro do processo web exposto a
+    upload de usuario."""
+    return DatabaseSettings(
+        host=os.environ.get("POLO_DB_HOST", "localhost"),
+        port=os.environ.get("POLO_DB_PORT", "5432"),
+        dbname=_require_env("POLO_DB_NAME"),
+        user=_require_env("WEB_IMPORT_DB_USER"),
+        password=_require_env("WEB_IMPORT_DB_PASSWORD"),
+    )
+
+
+def _build_url(settings: DatabaseSettings) -> str:
     return (
         f"postgresql+psycopg://{settings.user}:{settings.password}"
         f"@{settings.host}:{settings.port}/{settings.dbname}"
     )
+
+
+def build_database_url(readonly: bool = False) -> str:
+    settings = get_readonly_settings() if readonly else get_admin_settings()
+    return _build_url(settings)
+
+
+def build_web_import_database_url() -> str:
+    return _build_url(get_web_import_settings())
 
 
 def quarantine_dir() -> Path:

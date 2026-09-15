@@ -39,9 +39,15 @@ Power BI    → mart (role powerbi_readonly, inalterado)
   `raw`/`core`/`mart`/`etl`.
 - Role dedicada **`django_app`**: leitura/escrita em `core`, leitura em
   `etl`, sem acesso a `raw`/`mart`. A importação de arquivos (que grava em
-  `raw`/`etl`) roda com a role de administração do ETL
-  (`etl.db.get_engine()`, mesmo caminho de código do ETL de linha de
-  comando), não com `django_app`.
+  `raw`/`etl`) roda com uma **terceira role, também dedicada e mínima,
+  `web_import`** (`etl.db.get_web_import_engine()`, mesmo caminho de
+  código — `etl/pipeline.py` — do ETL de linha de comando), nunca com
+  `django_app` nem com a role de administração (`POLO_DB_USER`): o
+  processo web é o único ponto do sistema exposto a upload de arquivo por
+  um usuário autenticado via navegador, então roda com o menor
+  privilégio possível — leitura/escrita em `raw`/`core`/`etl`, sem
+  `DELETE`, sem DDL, sem acesso a `app`/`mart` (ver
+  `db/roles/web_import.sql`).
 
 ## Perfis de usuário (grupos Django)
 
@@ -66,19 +72,23 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,webapp]"
 ```
 
-### Banco: role e schema do Django
+### Banco: roles e schema do Django
 
 ```bash
-alembic upgrade head   # aplica, entre outras, a migration 0005 (schema app + role django_app)
+alembic upgrade head   # aplica, entre outras, as migrations 0005 (schema app + role django_app)
+                        # e 0006 (role web_import, para a tela de importação)
 psql -h "$POLO_DB_HOST" -U "$POLO_DB_USER" -d "$POLO_DB_NAME" \
   -c "ALTER ROLE django_app WITH PASSWORD '<gere uma senha forte>';"
+psql -h "$POLO_DB_HOST" -U "$POLO_DB_USER" -d "$POLO_DB_NAME" \
+  -c "ALTER ROLE web_import WITH PASSWORD '<gere outra senha forte>';"
 ```
 
 ### Variáveis de ambiente
 
 Acrescente ao `.env` da raiz do repositório (ver `.env.example`):
 `DJANGO_DB_USER`, `DJANGO_DB_PASSWORD`, `DJANGO_SECRET_KEY`,
-`DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`.
+`DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`,
+`WEB_IMPORT_DB_USER`, `WEB_IMPORT_DB_PASSWORD`.
 
 Gere a `SECRET_KEY`:
 
@@ -126,6 +136,49 @@ Acesse `http://127.0.0.1:8000/` (o admin fica na raiz do site, não em
   linka para o histórico de execuções e a quarentena. Novas entidades
   seguem o mesmo padrão (`etl/pipeline.py::processar_<entidade>`).
 
+## Testes automatizados
+
+```bash
+cd webapp
+pytest    # usa webapp/pytest.ini (DJANGO_SETTINGS_MODULE=config.settings)
+```
+
+**Estratégia de banco de teste (separada da suíte do Data Warehouse, e
+documentada aqui de propósito):** os testes rodam DIRETO contra o mesmo
+Postgres de desenvolvimento/CI já provisionado (`alembic upgrade head` +
+`python manage.py migrate` já aplicados), usando a role real `django_app`
+configurada em `DATABASES` — nunca uma role com `CREATEDB`. Isso é feito
+sobrescrevendo a fixture `django_db_setup` do pytest-django em
+`webapp/conftest.py` para não criar/apagar um banco de teste via `CREATE
+DATABASE`/`DROP DATABASE` (o comportamento padrão do Django, que exigiria
+`CREATEDB` da role usada). Cada teste que toca o banco roda dentro de uma
+transação revertida ao final (fixture `db`/marcador `@pytest.mark.django_db`
+do pytest-django), então nenhum teste deixa dado residual — o mesmo padrão
+já usado por `../tests/conftest.py` (a suíte do Data Warehouse) no mesmo
+Postgres. Isso também dá mais fidelidade ao teste: ele roda com a mesma
+role de privilégio mínimo usada em produção, então qualquer dependência
+indevida de um privilégio que `django_app` não tem aparece como uma
+falha real de teste.
+
+Duas exceções à transação automática, ambas com limpeza manual no
+teardown da própria fixture:
+- Fixtures que gravam em `etl.*`/`raw.*` usam uma conexão separada (a
+  role de administração do ETL, `etl.db.get_engine()`), pois
+  `django_app` só tem `SELECT` nesses schemas (ver
+  `db/roles/django_app.sql`) — mesmo caminho de escrita real de
+  produção (`tests/test_quarentena_pii.py`).
+- O teste de upload real (`tests/test_importacao.py`) sobe um CSV pela
+  tela web, que grava via a role `web_import` (conexão SQLAlchemy
+  separada da conexão Django) — também limpo manualmente no teardown.
+
+Cobertura: permissões dos 4 grupos (`test_permissoes.py`), mascaramento
+de PII na quarentena (`test_quarentena_pii.py`), autorização de
+importação e a role usada para gravar (`test_importacao.py`), campo "Ano
+de referência" em criação/edição (`test_ano_referencia.py`), CRUD de
+organização (`test_organizacao_crud.py`), sincronização das bridges de
+projeto (`test_projeto_bridge.py`) e ciclos de coleta com PK composta
+(`test_ciclo_coleta.py`).
+
 ## O que foi validado manualmente (Postgres real, sessão de desenvolvimento)
 
 - Login, branding, agrupamento de menu por tema.
@@ -144,12 +197,6 @@ Acesse `http://127.0.0.1:8000/` (o admin fica na raiz do site, não em
 
 ## Pendências conhecidas
 
-- Testes automatizados do Django (`pytest-django`/`manage.py test`) não
-  foram adicionados nesta primeira versão: o test runner padrão do Django
-  precisa de privilégio `CREATEDB`, que a role `django_app` propositalmente
-  não tem (princípio de privilégio mínimo). Alternativas para uma próxima
-  fase: role de teste dedicada com `CREATEDB`, ou testes no mesmo padrão
-  dos já existentes em `../tests/` (conexão direta + rollback).
 - Import CSV/XLSX implementado só para organizações; demais entidades
   seguem o padrão já estabelecido em `etl/pipeline.py`.
 - `mart.vw_cohort_sobrevivencia_empresarial` e outras views analíticas

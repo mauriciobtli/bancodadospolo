@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.db import models
+from django.db.models.functions import Now
 
 from core_admin import dominios
 from core_admin.models.base import FonteDadoModel, TimestampedModel
@@ -76,7 +77,7 @@ class ParticipanteProjeto(models.Model):
     data_entrada = models.DateField(null=True, blank=True)
     data_saida = models.DateField(null=True, blank=True)
     fonte_dado = models.TextField(default="admin_web")
-    criado_em = models.DateTimeField(editable=False)
+    criado_em = models.DateTimeField(db_default=Now(), editable=False)
 
     class Meta:
         managed = False
@@ -99,7 +100,7 @@ class TecnologiaProjeto(models.Model):
         Tecnologia, db_column="id_tecnologia", on_delete=models.RESTRICT, related_name="projetos_que_usam",
     )
     principal = models.BooleanField(default=False)
-    criado_em = models.DateTimeField(editable=False)
+    criado_em = models.DateTimeField(db_default=Now(), editable=False)
 
     class Meta:
         managed = False

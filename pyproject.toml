@@ -19,6 +19,7 @@ dev = [
 ]
 webapp = [
     "django>=5.2,<5.3",
+    "pytest-django>=4.9,<5.0",
 ]
 
 [build-system]

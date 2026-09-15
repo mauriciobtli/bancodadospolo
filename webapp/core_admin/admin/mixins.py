@@ -29,9 +29,26 @@ class AnoParaTempoFormField(forms.IntegerField):
         super().__init__(**kwargs)
 
     def prepare_value(self, value):
+        """Controla o que aparece no campo. Três formatos possíveis chegam
+        aqui, dependendo do caminho de renderização do Django Admin:
+        - criação (sem instância): None/"" (empty_values);
+        - edição: model_to_dict() resolve o FK para o valor bruto da PK
+          (int id_tempo, ex. 20241231), não para uma instância de Tempo;
+        - reexibição após erro de validação (outro campo inválido no
+          mesmo POST): o valor bruto SUBMETIDO pelo usuário, que já é o
+          ano digitado (ex. "2024"), não um id_tempo.
+        Distingue os dois formatos numéricos pela ordem de grandeza: anos
+        vão de 2015 a 2035 (4 dígitos); id_tempo é sempre AAAAMMDD
+        (8 dígitos, sempre > 9999)."""
+        if value in self.empty_values:
+            return value
         if hasattr(value, "ano"):
             return value.ano
-        return value
+        try:
+            numero = int(value)
+        except (TypeError, ValueError):
+            return value
+        return numero // 10000 if numero > 9999 else numero
 
     def clean(self, value):
         ano = super().clean(value)
