@@ -84,10 +84,26 @@ def test_editar_organizacao(client, cria_usuario):
     assert organizacao.nome == "Organização Editar Teste (renomeada)"
 
 
-def test_apagar_organizacao(client, cria_usuario):
+def test_cadastro_sozinho_nao_pode_apagar_organizacao(client, cria_usuario):
+    """O banco tem natureza histórica: "Cadastro" tem view/add/change,
+    nunca delete (ver migration core_admin.0002_sem_delete_para_cadastro)."""
     usuario = cria_usuario("Cadastro")
     client.force_login(usuario)
-    organizacao = Organizacao.objects.create(nome="Organização Apagar Teste", tipo_organizacao="empresa")
+    organizacao = Organizacao.objects.create(nome="Organização Apagar Teste 1", tipo_organizacao="empresa")
+
+    url_delete = reverse("admin:core_admin_organizacao_delete", args=[organizacao.pk])
+    resposta = client.post(url_delete, {"post": "yes"})
+    assert resposta.status_code == 403
+    assert Organizacao.objects.filter(pk=organizacao.pk).exists()
+
+
+def test_administrador_de_dados_combinado_com_cadastro_pode_apagar(client, cria_usuario):
+    """Exclusão excepcional: só funciona combinando "Cadastro" (para
+    poder navegar/ver o objeto) com "Administrador de Dados" (que dá o
+    delete_organizacao em si)."""
+    usuario = cria_usuario("Cadastro", "Administrador de Dados")
+    client.force_login(usuario)
+    organizacao = Organizacao.objects.create(nome="Organização Apagar Teste 2", tipo_organizacao="empresa")
 
     url_delete = reverse("admin:core_admin_organizacao_delete", args=[organizacao.pk])
     resposta = client.post(url_delete, {"post": "yes"}, follow=True)

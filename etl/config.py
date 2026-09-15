@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+from sqlalchemy.engine import URL
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env", override=False)
@@ -71,10 +72,19 @@ def get_web_import_settings() -> DatabaseSettings:
 
 
 def _build_url(settings: DatabaseSettings) -> str:
-    return (
-        f"postgresql+psycopg://{settings.user}:{settings.password}"
-        f"@{settings.host}:{settings.port}/{settings.dbname}"
+    """Monta a URL via sqlalchemy.engine.URL.create (nunca por
+    f-string/concatenação manual): URL.create faz o percent-encoding
+    correto de cada componente, então usuário/senha com caracteres
+    especiais (@, :, /, %, etc.) funcionam sem quebrar o parsing da URL."""
+    url = URL.create(
+        drivername="postgresql+psycopg",
+        username=settings.user,
+        password=settings.password,
+        host=settings.host,
+        port=int(settings.port),
+        database=settings.dbname,
     )
+    return url.render_as_string(hide_password=False)
 
 
 def build_database_url(readonly: bool = False) -> str:

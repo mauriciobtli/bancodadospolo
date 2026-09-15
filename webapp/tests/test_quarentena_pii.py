@@ -5,12 +5,12 @@ sem a permissão nativa sobre ContatoOrganizacao (grupo "Contatos") não
 podem ver esses valores, nem na tela de detalhe da quarentena.
 
 As linhas de etl.etl_execucao/etl.quarentena_registro são inseridas aqui
-por uma conexão separada (etl.db.get_engine(), a role de administração
-real usada pelo ETL) porque django_app só tem SELECT em etl (ver
-db/roles/django_app.sql) — o mesmo caminho de escrita real de produção,
-onde quem grava ali é sempre o pipeline de ETL, nunca o Django
-diretamente. Por rodar numa conexão separada da transação de teste do
-Django (que só cobre o alias "default"), a limpeza é manual.
+por uma conexão separada (fixture `admin_engine`, a role de administração
+real usada pelo ETL, apontada para o banco de TESTE) porque django_app só
+tem SELECT em etl (ver db/roles/django_app.sql) — o mesmo caminho de
+escrita real de produção, onde quem grava ali é sempre o pipeline de ETL,
+nunca o Django diretamente. Por rodar numa conexão separada da transação
+de teste do Django (que só cobre o alias "default"), a limpeza é manual.
 """
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from django.urls import reverse
 from sqlalchemy import text
 
 from core_admin.admin.importacao_historico import MASCARA
-from etl.db import get_engine
 
 pytestmark = pytest.mark.django_db
 
@@ -36,8 +35,8 @@ DADOS_ORIGINAIS = {
 
 
 @pytest.fixture
-def registro_em_quarentena():
-    engine = get_engine()
+def registro_em_quarentena(admin_engine):
+    engine = admin_engine
     with engine.begin() as conn:
         id_execucao = conn.execute(
             text(

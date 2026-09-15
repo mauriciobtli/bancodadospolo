@@ -1,12 +1,30 @@
 """Configuracao do Django Admin do Polo Inovale.
 
 Principios:
-- Nenhuma credencial no codigo: tudo vem do mesmo .env do resto do
-  projeto (ver .env.example na raiz do repo).
+- Nenhuma credencial no codigo: tudo vem de variaveis de ambiente (ver
+  .env.example na raiz do repo, para desenvolvimento, e
+  webapp/.env.production.example para producao).
 - O Django tem seu proprio schema Postgres (`app`, primeiro no
   search_path) para suas tabelas internas; os modelos que representam
   tabelas de core.* sao managed=False e nunca sao alterados por
   `manage.py migrate` (quem governa o schema do DW e o Alembic).
+- **O processo Django de producao nunca deve RECEBER POLO_DB_USER/
+  POLO_DB_PASSWORD** (a role de administracao do banco, usada só por
+  Alembic/ETL) — só DJANGO_DB_*/WEB_IMPORT_DB_* (ver webapp/README.md,
+  secao "Implantacao em producao: isolamento de credenciais"). O
+  controle que garante isso de verdade e operacional: o host/processo
+  web em producao recebe um conjunto de variaveis de ambiente
+  propositalmente restrito (nunca o .env administrativo completo). Como
+  camada extra, best-effort, para o caso comum de desenvolvimento em que
+  um unico .env compartilhado (com tudo, inclusive POLO_DB_USER) e
+  reaproveitado por conveniencia, `importacao/views.py` (o UNICO ponto
+  do processo real que toca `etl.config`) remove essas duas variaveis do
+  processo logo depois de importa-las — exceto sob `settings_test`
+  (`IS_TEST_SETTINGS = True` abaixo), onde a suite de testes precisa da
+  credencial administrativa para gravar fixtures em `etl`/`raw`
+  diretamente (ver webapp/tests/test_quarentena_pii.py e
+  webapp/tests/test_importacao.py). Isso NAO substitui a separacao real
+  de credenciais por ambiente.
 """
 from __future__ import annotations
 
@@ -18,6 +36,9 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent
 load_dotenv(REPO_ROOT / ".env", override=False)
+
+# Sobrescrita para True em config/settings_test.py — ver o aviso acima.
+IS_TEST_SETTINGS = False
 
 
 def _env(name: str, default: str | None = None, obrigatorio: bool = False) -> str:

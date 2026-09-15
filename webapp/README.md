@@ -51,15 +51,23 @@ Power BI    → mart (role powerbi_readonly, inalterado)
 
 ## Perfis de usuário (grupos Django)
 
-Criados automaticamente por `manage.py migrate` (migration
-`core_admin.0001_initial`):
+Criados automaticamente por `manage.py migrate` (migrations
+`core_admin.0001_initial` e `0002_sem_delete_para_cadastro`):
 
 | Grupo | Acesso |
 |---|---|
-| **Cadastro** | CRUD completo em tudo, exceto contatos das organizações |
-| **Contatos** | Acesso a `ContatoOrganizacao` (dado pessoal/LGPD) — some para quem não está neste grupo, inclusive a aba inline em Organização |
+| **Cadastro** | Visualizar/criar/editar em tudo, exceto contatos das organizações — **sem excluir** (ver abaixo) |
+| **Contatos** | Acesso a `ContatoOrganizacao` (dado pessoal/LGPD, CRUD completo incl. exclusão) — some para quem não está neste grupo, inclusive a aba inline em Organização — e vê a quarentena sem máscara de PII |
 | **Importação** | Acesso à tela de importação CSV/XLSX (permissão nomeada à parte, por ser uma ação de maior impacto) |
 | **Leitura** | Só visualização, em tudo exceto contatos |
+| **Administrador de Dados** | Só permissões de exclusão (nada de view/add/change) — sempre combinado com "Cadastro" ou "Leitura" para quem precisa apagar algo excepcionalmente |
+
+**O banco tem natureza histórica: nenhum grupo operacional (Cadastro,
+Leitura, Contatos exceto para seus próprios contatos, Importação) pode
+apagar registros fisicamente.** Uma exclusão excepcional exige adicionar
+o usuário também ao grupo "Administrador de Dados". `EtlExecucao`/
+`QuarentenaRegistro` nunca são apagáveis pelo admin, por ninguém (ver
+`SomenteLeituraAdminMixin`).
 
 Superusuários (`createsuperuser`) têm acesso total, incluindo gestão de
 usuários/grupos.
@@ -95,6 +103,35 @@ Gere a `SECRET_KEY`:
 ```bash
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 ```
+
+### Implantação em produção: isolamento de credenciais
+
+**O processo Django de produção nunca deve receber `POLO_DB_USER` nem
+`POLO_DB_PASSWORD`** (a role de administração do banco, usada só por
+Alembic e pelo ETL de linha de comando) — ele só precisa conhecer
+`DJANGO_DB_*` (leitura/escrita em `core`, leitura em `etl`) e
+`WEB_IMPORT_DB_*` (a role mínima da tela de importação). Se o processo
+web vazar (bug, dependência comprometida, um endpoint de debug) e a
+credencial administrativa nunca esteve no seu ambiente, não há o que
+vazar.
+
+Em desenvolvimento, é conveniente usar um único `.env` compartilhado
+(com tudo, inclusive `POLO_DB_USER`) — por isso `config/settings.py` e
+`importacao/views.py` removem essas duas variáveis do processo assim
+que terminam de ser usadas (ver os comentários nesses arquivos), como
+camada extra. **Mas o controle real é operacional, não código**: em
+produção, o host/processo que serve o Django deve receber só o
+subconjunto de variáveis do modelo `webapp/.env.production.example` —
+nunca o `.env` administrativo completo da raiz do repositório. Isso vale
+tanto para injeção direta de variáveis pelo orquentrador (systemd
+`EnvironmentFile=`, variáveis de ambiente do container, Secret do
+Kubernetes) quanto para um arquivo `.env` dedicado só à máquina/processo
+web.
+
+A credencial administrativa (`POLO_DB_USER`/`POLO_DB_PASSWORD`) deve
+existir somente onde Alembic e o ETL de linha de comando rodam — uma
+máquina/job administrativo separado (ou um runner de CI dedicado a
+migrations), nunca no host que atende tráfego HTTP do admin web.
 
 ### Migrations do Django (só tabelas internas: usuários, sessões, grupos)
 
@@ -138,46 +175,77 @@ Acesse `http://127.0.0.1:8000/` (o admin fica na raiz do site, não em
 
 ## Testes automatizados
 
+**Estratégia de banco de teste (separada da suíte do Data Warehouse, e
+documentada aqui de propósito): um banco de teste SEPARADO e
+pré-criado, nunca o banco de produção/desenvolvimento.**
+
+### Provisionar o banco de teste (uma vez, dev/CI)
+
 ```bash
+createdb polo_inovale_test   # ou: CREATE DATABASE polo_inovale_test; via psql
+
+# Mesmas migrations do banco "de verdade" — schema raw/core/mart/etl,
+# roles (django_app, web_import), seeds:
+POLO_DB_NAME=polo_inovale_test alembic upgrade head
+
+# Schema app do Django (usuários, sessões, grupos/permissões):
 cd webapp
-pytest    # usa webapp/pytest.ini (DJANGO_SETTINGS_MODULE=config.settings)
+DJANGO_TEST_DB_NAME=polo_inovale_test DJANGO_SETTINGS_MODULE=config.settings_test python manage.py migrate
 ```
 
-**Estratégia de banco de teste (separada da suíte do Data Warehouse, e
-documentada aqui de propósito):** os testes rodam DIRETO contra o mesmo
-Postgres de desenvolvimento/CI já provisionado (`alembic upgrade head` +
-`python manage.py migrate` já aplicados), usando a role real `django_app`
-configurada em `DATABASES` — nunca uma role com `CREATEDB`. Isso é feito
-sobrescrevendo a fixture `django_db_setup` do pytest-django em
-`webapp/conftest.py` para não criar/apagar um banco de teste via `CREATE
-DATABASE`/`DROP DATABASE` (o comportamento padrão do Django, que exigiria
-`CREATEDB` da role usada). Cada teste que toca o banco roda dentro de uma
-transação revertida ao final (fixture `db`/marcador `@pytest.mark.django_db`
-do pytest-django), então nenhum teste deixa dado residual — o mesmo padrão
-já usado por `../tests/conftest.py` (a suíte do Data Warehouse) no mesmo
-Postgres. Isso também dá mais fidelidade ao teste: ele roda com a mesma
-role de privilégio mínimo usada em produção, então qualquer dependência
-indevida de um privilégio que `django_app` não tem aparece como uma
-falha real de teste.
+Acrescente ao `.env` da raiz: `DJANGO_TEST_DB_NAME=polo_inovale_test`
+(ver `.env.example`) — precisa ser **diferente** de `POLO_DB_NAME`.
 
-Duas exceções à transação automática, ambas com limpeza manual no
-teardown da própria fixture:
-- Fixtures que gravam em `etl.*`/`raw.*` usam uma conexão separada (a
-  role de administração do ETL, `etl.db.get_engine()`), pois
-  `django_app` só tem `SELECT` nesses schemas (ver
-  `db/roles/django_app.sql`) — mesmo caminho de escrita real de
-  produção (`tests/test_quarentena_pii.py`).
-- O teste de upload real (`tests/test_importacao.py`) sobe um CSV pela
-  tela web, que grava via a role `web_import` (conexão SQLAlchemy
-  separada da conexão Django) — também limpo manualmente no teardown.
+### Rodar
 
-Cobertura: permissões dos 4 grupos (`test_permissoes.py`), mascaramento
+```bash
+cd webapp
+pytest    # usa webapp/pytest.ini (DJANGO_SETTINGS_MODULE=config.settings_test)
+```
+
+`config/settings_test.py` (nunca referenciado por `manage.py`/`wsgi.py`
+de produção) aponta `DATABASES["default"]["NAME"]` — e a própria
+variável de ambiente `POLO_DB_NAME` (lida diretamente por `etl.config`,
+fora do `DATABASES` do Django) — para `DJANGO_TEST_DB_NAME`, e **recusa
+subir** (`RuntimeError` na importação, antes de qualquer teste rodar) se
+essa variável estiver ausente ou for igual a `POLO_DB_NAME`. Como camada
+extra, `webapp/conftest.py::django_db_setup` confirma em tempo de
+execução que o settings module ativo é mesmo `config.settings_test`
+(`IS_TEST_SETTINGS = True`) antes de deixar qualquer teste tocar o
+banco — e não deixa o pytest-django criar/apagar banco via `CREATE
+DATABASE`/`DROP DATABASE` (o padrão do Django, que exigiria `CREATEDB`
+de alguma role — nenhuma role de produção deste projeto tem esse
+privilégio).
+
+Cada teste que toca o banco roda dentro de uma transação revertida ao
+final (fixture `db`/marcador `@pytest.mark.django_db` do pytest-django),
+então nenhum teste deixa dado residual no banco de teste — o mesmo
+padrão já usado por `../tests/conftest.py` (a suíte do Data Warehouse,
+que roda contra o banco de desenvolvimento de verdade, com rollback por
+teste). Isso também dá mais fidelidade ao teste: a conexão Django usa a
+mesma role de privilégio mínimo (`django_app`) usada em produção, então
+qualquer dependência indevida de um privilégio que ela não tem aparece
+como uma falha real de teste.
+
+Uma exceção à transação automática, com limpeza manual no teardown da
+própria fixture: fixtures/rotas que gravam em `etl.*`/`raw.*` usam a role
+de administração do ETL (`etl.db.get_engine()`/`get_web_import_engine()`,
+via a fixture `admin_engine`, ou a própria view de importação real) —
+`django_app` só tem `SELECT` em `etl` e nenhum acesso a `raw` (ver
+`db/roles/django_app.sql`) — mesmo caminho de escrita real de produção
+(`tests/test_quarentena_pii.py`, `tests/test_importacao.py`).
+
+Cobertura: permissões dos grupos, incluindo ausência de `DELETE` para
+"Cadastro" e o grupo "Administrador de Dados" (`test_permissoes.py`,
+`test_grupos_delete.py`), a migration incremental
+`0002_sem_delete_para_cadastro` (`test_grupos_delete.py`), mascaramento
 de PII na quarentena (`test_quarentena_pii.py`), autorização de
 importação e a role usada para gravar (`test_importacao.py`), campo "Ano
 de referência" em criação/edição (`test_ano_referencia.py`), CRUD de
 organização (`test_organizacao_crud.py`), sincronização das bridges de
-projeto (`test_projeto_bridge.py`) e ciclos de coleta com PK composta
-(`test_ciclo_coleta.py`).
+projeto (`test_projeto_bridge.py`), ciclos de coleta com PK composta
+(`test_ciclo_coleta.py`) e a guarda de `config.settings_test` contra
+apontar para o banco de produção (`test_settings_test_guard.py`).
 
 ## O que foi validado manualmente (Postgres real, sessão de desenvolvimento)
 

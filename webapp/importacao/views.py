@@ -13,9 +13,11 @@ gravar a carga.
 """
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.shortcuts import redirect, render
@@ -25,6 +27,21 @@ from etl.db import get_web_import_engine
 from etl.pipeline import carregar_organizacoes_csv, carregar_organizacoes_xlsx, processar_organizacoes
 
 from .forms import UploadArquivoForm
+
+# etl.config (importado acima via etl.db) carrega seu proprio .env com
+# override=False — em desenvolvimento, onde e comum um unico .env
+# compartilhado com POLO_DB_USER/POLO_DB_PASSWORD, isso poe essas duas
+# variaveis no processo. Este e o UNICO modulo do processo web real que
+# importa etl.config/etl.db, entao removê-las aqui logo em seguida
+# garante o estado final do processo (nao importa a ordem de import).
+# Sob `settings_test` (IS_TEST_SETTINGS=True) isso fica desligado: a
+# suite de testes usa a credencial administrativa de proposito, para
+# gravar fixtures em etl/raw (ver webapp/tests/test_quarentena_pii.py e
+# webapp/tests/test_importacao.py) — django_app so tem SELECT nesses
+# schemas (db/roles/django_app.sql).
+if not django_settings.IS_TEST_SETTINGS:
+    os.environ.pop("POLO_DB_USER", None)
+    os.environ.pop("POLO_DB_PASSWORD", None)
 
 PERMISSAO_IMPORTAR = "core_admin.pode_importar_dados"
 
